@@ -1,8 +1,6 @@
 
 #include "atomicx.hpp"
 
-atomicx::Kernel kernel;
-
 
 class tth : atomicx::Thread
 {
@@ -11,7 +9,7 @@ class tth : atomicx::Thread
 
     public:
 
-    tth () : Thread (kernel, 100, nStack)
+    tth () : Thread (100, nStack)
     {
         // Serial.print ((size_t) this);
         // Serial.println (F(": Initiating."));
@@ -23,14 +21,9 @@ class tth : atomicx::Thread
         Serial.print ((size_t) this);
         Serial.print (F(": TTH Deleting."));
         Serial.print (F(", th#:"));
-        Serial.println (kernel.GetThreadCount ());
+        Serial.println (atomicx::kernel.GetThreadCount ());
         Serial.flush ();
         
-    }
-
-    atomicx::Kernel& GetKernel()
-    {
-        return kernel;
     }
 
     virtual void run ()
@@ -47,7 +40,7 @@ class tth : atomicx::Thread
             Serial.println (GetStackSize ());
             Serial.flush ();
 
-           kernel.Yield ();
+           Yield ();
         }
 
         Serial.print ((size_t) this);
@@ -61,7 +54,6 @@ class tth : atomicx::Thread
     }
 };
 
-
 class th : atomicx::Thread
 {
     private:
@@ -69,7 +61,7 @@ class th : atomicx::Thread
 
     public:
 
-    th () : Thread (GetKernel (), 100, nStack)
+    th () : Thread (100, nStack)
     {
         // Serial.print ((size_t) this);
         // Serial.println (F(": Initiating."));
@@ -85,17 +77,12 @@ class th : atomicx::Thread
 
     void yield_in ()
     {
-      kernel.Yield ();
+      Yield ();
     }
 
     void yield ()
     {
         yield_in ();
-    }
-
-    atomicx::Kernel& GetKernel () 
-    {
-        return kernel;
     }
 
     virtual void run ()
@@ -105,26 +92,29 @@ class th : atomicx::Thread
 
         while (true)
         {
-            if (nValue && nValue % 50 == 0) 
-            {
-                th = new tth ();
-                delay(100);
-            }
-
-            if (nValue && nValue % 100 == 0)
-            {
-                delete th;
-                delay(100);
-            }
-
             yield ();
 
             Serial.print ((size_t) this);
             Serial.print (F(":TEST Vall:"));
             Serial.print (nValue++);
             Serial.print (F(", th#:"));
-            Serial.println (kernel.GetThreadCount ());
+            Serial.println (atomicx::kernel.GetThreadCount ());
             Serial.flush ();
+
+            if (nValue && nValue % 50 == 0) 
+            {
+                if (!th)
+                {
+                    th = new tth ();
+                    delay(100);
+                }
+                else
+                {
+                    delete th;
+                    th = nullptr,
+                    delay(100);
+                }
+            }
         }
 
         Serial.print ((size_t) this);
@@ -156,7 +146,7 @@ void setup()
 
     Serial.println ("-------------------------------------");
 
-    for (auto& th : kernel)
+    for (auto& th : atomicx::kernel)
     {
         Serial.print (__func__);
         Serial.print (": Listing thread: ");
@@ -168,7 +158,7 @@ void setup()
 
     Serial.println ("-------------------------------------");
 
-    kernel.Join ();
+    atomicx::kernel.Join ();
 }
 
 void loop() {

@@ -17,8 +17,6 @@
 #include <stdlib.h>
 #include <iostream>
 
-atomicx::Kernel kernel;
-
 class th : atomicx::Thread
 {
     private:
@@ -27,7 +25,7 @@ class th : atomicx::Thread
 
     public:
 
-    th () : Thread (kernel, 100, nStack)
+    th () : Thread (100, nStack)
     {
         std::cout << (size_t) this << ": Initiating." << std::endl;
     }
@@ -39,7 +37,7 @@ class th : atomicx::Thread
 
     void yield_in ()
     {
-       GetKernel().Yield ();
+       Yield ();
     }
 
     void yield ()
@@ -82,14 +80,14 @@ int main ()
 
     std::cout << "-------------------------------" << std::endl;
 
-    for (atomicx::Thread& a : kernel)
+    for (atomicx::Thread& a : atomicx::kernel)
     {
         std::cout << (size_t) &a << " thread" << std::endl;
     }
 
     std::cout << "-------------------------------" << std::endl << std::endl;
 
-    kernel.Join ();
+    atomicx::kernel.Join ();
     
     std::cout << "End Application" << std::endl << std::endl;
        

@@ -264,6 +264,8 @@ namespace atomicx
             }
     };
 
+    Kernel kernel;
+
     /*
         THREAD CLASS 
     */
@@ -273,8 +275,6 @@ namespace atomicx
         private:
             friend bool AttachThread (Kernel&, Thread&);
             friend bool DetachThread (Kernel&, Thread&);
-
-            Kernel& m_kernel;
 
             Status m_status = Status::starting;
 
@@ -298,13 +298,12 @@ namespace atomicx
 
             virtual void run(void) = 0;
 
-            template<size_t N>Thread (Kernel& kernel, atomicx_time nNice, volatile size_t (&stack)[N]) : 
-                m_kernel (kernel),
+            template<size_t N>Thread (atomicx_time nNice, volatile size_t (&stack)[N]) : 
                 m_nNice (nNice), 
                 m_nMaxStackSize (N * sizeof (size_t)),
                 m_stack (stack [0])
             {
-                AttachThread (m_kernel, *this);
+                AttachThread (kernel, *this);
             }
 
         public:
@@ -313,8 +312,7 @@ namespace atomicx
             
             virtual ~Thread ()
             {
-                for (long a; a < 1000000; a++);
-                DetachThread (m_kernel, *this);
+                DetachThread (kernel, *this);
             }
 
             size_t GetStackSize ()
@@ -325,6 +323,11 @@ namespace atomicx
             size_t GetMaxStackSize ()
             {
                 return m_nMaxStackSize;
+            }
+
+            bool Yield ()
+            {
+                return kernel.Yield ();
             }
     };
 
@@ -391,6 +394,8 @@ namespace atomicx
 
             setjmp (m_joinContext);
 
+            if (m_nNodeCounter == 0) return false;
+
             pCurrent = GetCyclicalNext (); 
 
             TRACE (TRACE, "------------------------------------");
@@ -422,6 +427,8 @@ namespace atomicx
         pCurrent->nStackSize = pStartStack - pCurrent->pEndStack + sizeof (size_t);
 
         TRACE(TRACE, "Stack size: " << pCurrent->nStackSize << ", Max: " << pCurrent->m_nMaxStackSize << ", Occupied: " << (100*pCurrent->nStackSize)/(pCurrent->m_nMaxStackSize) << "%");
+
+        pCurrent->m_status = Status::sleeping;
 
         if (setjmp (pCurrent->m_context) != 0)
         {
