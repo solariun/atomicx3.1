@@ -5,7 +5,7 @@
 
 extern void yield_in ();
 
-class th : atomicx::Thread
+class th : public atomicx::Thread
 {
     private:
         volatile size_t nStack [20];
@@ -44,7 +44,7 @@ class th : atomicx::Thread
             Serial.print (F(":TEST Vall:"));
             Serial.print (nValue++);
             Serial.print (F(", th#:"));
-            Serial.println (atomicx::kernel.GetThreadCount ());
+            Serial.println (GetThreadCount ());
             Serial.flush ();
 
             if (nValue && nValue % 50 == 0) 

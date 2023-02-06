@@ -11,15 +11,34 @@
 namespace atomicx
 {
 
+        Thread* Thread::m_pBegin = nullptr;
+        Thread* Thread::m_pEnd = nullptr;
+        Thread* Thread::m_pCurrent = nullptr;
+
+        size_t Thread::m_nNodeCounter = 0;
+
+        volatile uint8_t* Thread::m_pStartStack = nullptr;
+
+        jmp_buf Thread::m_joinContext = {};
+        
+        /* ------------------------ */
+
+        Status m_status = Status::starting;
+
+        // Thread context register buffer
+        jmp_buf m_context = {};
+
+        volatile uint8_t* m_pEndStack = nullptr;
+
     /*
         KERNEL 
     */
-    Thread* Kernel::GetCyclicalNext()
+    Thread* Thread::GetCyclicalNext()
     {
         return (m_pCurrent->pNext) == nullptr ? (m_pCurrent = m_pBegin) : m_pCurrent->pNext;
     }
 
-    bool Kernel::Join ()
+    bool Thread::Join ()
     {    
         m_pCurrent = m_pEnd;
 
@@ -53,15 +72,17 @@ namespace atomicx
             }
         }
 
+        TRACE (TRACE, "NO THREAD TO RUN.... #" << m_nNodeCounter);
+
         return false;
     }
 
-    bool Kernel::Yield ()
+    bool Thread::Yield ()
     {
         m_pCurrent->m_pEndStack = GetStackPoint (); 
         m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack + sizeof (size_t);
 
-        TRACE(TRACE, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
+        TRACE (TRACE, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
 
         m_pCurrent->m_status = Status::sleeping;
 
@@ -70,7 +91,7 @@ namespace atomicx
             m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack;
             memcpy ((void*) m_pCurrent->m_pEndStack, (const void*) &m_pCurrent->m_stack, m_pCurrent->nStackSize);
 
-            TRACE(TRACE, (size_t) m_pCurrent << ": RETURNED from Join.");
+            NOTRACE(TRACE, (size_t) m_pCurrent << ": RETURNED from Join.");
 
             return true;
         } 
@@ -82,7 +103,7 @@ namespace atomicx
         return false;
     }
 
-    size_t Kernel::GetThreadCount ()
+    size_t Thread::GetThreadCount ()
     {
         return m_nNodeCounter;
     }
@@ -93,7 +114,7 @@ namespace atomicx
 
     Thread::~Thread ()
     {
-        DetachThread (kernel, *this);
+        DetachThread (*this);
     }
 
     size_t Thread::GetStackSize ()

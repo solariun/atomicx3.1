@@ -3,19 +3,19 @@
 
 #include "test.h"
 
-atomicx_time atomicx::Kernel::GetTick(void)
+atomicx_time atomicx::Thread::GetTick(void)
 {
     return millis();
 }
 
-void atomicx::Kernel::SleepTick(atomicx_time nSleep)
+void atomicx::Thread::SleepTick(atomicx_time nSleep)
 {
     delay(nSleep);
 }
 
 void yield_in ()
 {
-    atomicx::kernel.Yield ();
+    atomicx::Thread::Yield ();
 }
 
 th th1;
@@ -35,7 +35,7 @@ void setup()
 
     Serial.println ("-------------------------------------");
 
-    for (auto& th : atomicx::kernel)
+    for (auto& th : th1)
     {
         Serial.print (__func__);
         Serial.print (": Listing thread: ");
@@ -47,7 +47,7 @@ void setup()
 
     Serial.println ("-------------------------------------");
 
-    atomicx::kernel.Join ();
+    atomicx::Thread::Join ();
 }
 
 void loop() {

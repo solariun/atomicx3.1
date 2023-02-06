@@ -38,7 +38,7 @@ typedef uint32_t atomicx_time;
 
 #ifdef _DEBUG
 #include <iostream>
-#define TRACE(i, x) if (DBGLevel::i <= DBGLevel::_DEBUG) std::cout << "[" << #i << "] " << this << "(" << __FUNCTION__ << ", " << __FILE_NAME__ << ":" << __LINE__ << "):  " << x << std::endl << std::flush
+#define TRACE(i, x) if (DBGLevel::i <= DBGLevel::_DEBUG) std::cout << "[" << #i << "] "  << "(" << __FUNCTION__ << ", " << __FILE_NAME__ << ":" << __LINE__ << "):  " << x << std::endl << std::flush
 #else
 #define TRACE(i, x) NOTRACE(i,x)
 #endif
@@ -58,8 +58,7 @@ namespace atomicx
     #define GetStackPoint() ({volatile uint8_t ___var = 0xBB; &___var;})
 
     class Thread;
-    class Kernel;
-
+    
     /*
     * ---------------------------------------------------------------------
     * Iterator Implementation
@@ -146,8 +145,6 @@ namespace atomicx
     struct KNode
     {
     protected:
-        friend class Kernel;
-
         Thread* pPrev = nullptr;
         Thread* pNext = nullptr;
 
@@ -158,9 +155,9 @@ namespace atomicx
         }
     };
 
-    static bool AttachThread (Kernel& kernel, Thread& thread);
+    static bool AttachThread (Thread& thread);
 
-    static bool DetachThread (Kernel& kernel, Thread& thread);
+    static bool DetachThread (Thread& thread);
 
     enum class Status : uint8_t
     {
@@ -206,86 +203,26 @@ namespace atomicx
         return name;
     } 
 
-    bool StaticYield (Kernel& k);
-
     /*
-        KERNEL CLASS 
+        KERNEL internals
     */
 
-    class Kernel
+    namespace Kernel 
     {
-        private:
-            friend class Thread;
-            friend bool AttachThread (Kernel&, Thread&);
-            friend bool DetachThread (Kernel&, Thread&);
+        static Thread* m_pBegin = nullptr;
+        static Thread* m_pEnd = nullptr;
+        static Thread* m_pCurrent = nullptr;
 
-            Thread* m_pBegin = nullptr;
-            Thread* m_pEnd = nullptr;
-            Thread* m_pCurrent = nullptr;
+        static size_t m_nNodeCounter = 0;
 
-            size_t m_nNodeCounter = 0;
+        static volatile uint8_t* m_pStartStack = nullptr;
 
-        protected:
-            friend class Thread;
+        static jmp_buf m_joinContext = {};
 
-            volatile uint8_t* m_pStartStack = nullptr;
+        static Thread* GetCyclicalNext();
 
-            jmp_buf m_joinContext = {};
 
-            Thread* GetCyclicalNext();
-
-        public:
-
-            /*
-            * ATTENTION: GetTick and SleepTick MUST be ported from user
-            *
-            * crete functions with the following prototype on your code,
-            * for example, see test/main.cpp
-            *
-            *   atomicx_time atomicx::Kernel::GetTick (void) { <code> }
-            *   void atomicx::Kernel::SleepTick(atomicx_time nSleep) { <code> }
-            */
-
-            /**
-             * @brief Implement the custom Tick acquisition
-             *
-             * @return atomicx_time
-             */
-            atomicx_time GetTick(void);
-
-            /**
-             * @brief Implement a custom sleep, usually based in the same GetTick granularity
-             *
-             * @param nSleep    How long custom tick to wait
-             *
-             * @note This function is particularly special, since it give freedom to tweak the
-             *       processor power consumption if necessary
-             */
-            void SleepTick(atomicx_time nSleep);
-            
-            Kernel () 
-            {
-                
-            }
-
-            Iterator<Thread> begin()
-            {
-                return Iterator<Thread>(m_pBegin);
-            } 
-
-            Iterator<Thread> end()
-            {
-                return Iterator<Thread>(nullptr);
-            }
-
-            bool Join ();
-
-            bool Yield ();
-
-            size_t GetThreadCount ();
-    };
-
-    static Kernel kernel;
+    }
 
     /*
         THREAD CLASS 
@@ -294,8 +231,23 @@ namespace atomicx
     class Thread : public KNode
     {
         private:
-            friend bool AttachThread (Kernel&, Thread&);
-            friend bool DetachThread (Kernel&, Thread&);
+            friend bool AttachThread (Thread&);
+            friend bool DetachThread (Thread&);
+
+            /* Kernel ------------------ */
+            static Thread* m_pBegin;
+            static Thread* m_pEnd;
+            static Thread* m_pCurrent;
+
+            static size_t m_nNodeCounter;
+
+            static volatile uint8_t* m_pStartStack;
+
+            static jmp_buf m_joinContext;
+
+            static Thread* GetCyclicalNext();
+            
+            /* ------------------------ */
 
             Status m_status = Status::starting;
 
@@ -315,24 +267,65 @@ namespace atomicx
             Thread () = delete;
             
         protected:
-            friend class Kernel;
-
             virtual void run(void) = 0;
+
+            static bool AttachThread (Thread& thread)
+            {
+                if (m_pBegin == nullptr)
+                {
+                    m_pBegin = &thread;
+                    m_pEnd = m_pBegin;
+                }
+                else
+                {
+                    thread.pPrev = m_pEnd;
+                    m_pEnd->pNext = &thread;
+                    m_pEnd = &thread;
+                }
+
+                m_nNodeCounter++;
+
+                return true;
+            }
+
+            static bool DetachThread (Thread& thread)
+            {
+                if (thread.pNext == nullptr && thread.pPrev == nullptr)
+                {
+                    m_pBegin = nullptr;
+                    thread.pPrev = nullptr;
+                }
+                else if (thread.pPrev == nullptr)
+                {
+                    thread.pNext->pPrev = nullptr;
+                    m_pBegin = thread.pNext;
+                }
+                else if (thread.pNext == nullptr)
+                {
+                    thread.pPrev->pNext = nullptr;
+                    m_pEnd = thread.pPrev;
+                }
+                else
+                {
+                    thread.pPrev->pNext = thread.pNext;
+                    thread.pNext->pPrev = thread.pPrev;
+                }
+
+                m_nNodeCounter--;
+
+                return true;
+            }
 
             template<size_t N>Thread (atomicx_time nNice, volatile size_t (&stack)[N]) : 
                 m_nNice (nNice), 
                 m_nMaxStackSize (N * sizeof (size_t)),
                 m_stack (stack [0])
             {
-                AttachThread (kernel, *this);
+                AttachThread (*this);
             }
 
         public:
 
-            static bool Yield ()
-            {
-                return kernel.Yield ();
-            }
             virtual const char* GetName () = 0;
             
             virtual ~Thread ();
@@ -340,55 +333,51 @@ namespace atomicx
             size_t GetStackSize ();
 
             size_t GetMaxStackSize ();
+
+            Iterator<Thread> begin()
+            {
+                return Iterator<Thread>(m_pBegin);
+            } 
+
+            Iterator<Thread> end()
+            {
+                return Iterator<Thread>(nullptr);
+            }
+
+            /*
+            * ATTENTION: GetTick and SleepTick MUST be ported from user
+            *
+            * crete functions with the following prototype on your code,
+            * for example, see test/main.cpp
+            *
+            *   atomicx_time atomicx::GetTick (void) { <code> }
+            *   void atomicx::SleepTick(atomicx_time nSleep) { <code> }
+            */
+
+            /**
+             * @brief Implement the custom Tick acquisition
+             *
+             * @return atomicx_time
+             */
+            atomicx_time GetTick(void);
+
+            /**
+             * @brief Implement a custom sleep, usually based in the same GetTick granularity
+             *
+             * @param nSleep    How long custom tick to wait
+             *
+             * @note This function is particularly special, since it give freedom to tweak the
+             *       processor power consumption if necessary
+             */
+            void SleepTick(atomicx_time nSleep);
+
+            static bool Join ();
+
+            static bool Yield ();
+
+            size_t GetThreadCount ();
     };
 
-    static bool AttachThread (Kernel& kernel, Thread& thread)
-    {
-        if (kernel.m_pBegin == nullptr)
-        {
-            kernel.m_pBegin = &thread;
-            kernel.m_pEnd = kernel.m_pBegin;
-        }
-        else
-        {
-            thread.pPrev = kernel.m_pEnd;
-            kernel.m_pEnd->pNext = &thread;
-            kernel.m_pEnd = &thread;
-        }
-
-        kernel.m_nNodeCounter++;
-
-        return true;
-    }
-
-
-    static bool DetachThread (Kernel& kernel, Thread& thread)
-    {
-        if (thread.pNext == nullptr && thread.pPrev == nullptr)
-        {
-            kernel.m_pBegin = nullptr;
-            thread.pPrev = nullptr;
-        }
-        else if (thread.pPrev == nullptr)
-        {
-            thread.pNext->pPrev = nullptr;
-            kernel.m_pBegin = thread.pNext;
-        }
-        else if (thread.pNext == nullptr)
-        {
-            thread.pPrev->pNext = nullptr;
-            kernel.m_pEnd = thread.pPrev;
-        }
-        else
-        {
-            thread.pPrev->pNext = thread.pNext;
-            thread.pNext->pPrev = thread.pPrev;
-        }
-
-        kernel.m_nNodeCounter--;
-
-        return true;
-    }
 
 }
 

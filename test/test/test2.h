@@ -20,7 +20,7 @@ class tth : atomicx::Thread
         Serial.print ((size_t) this);
         Serial.print (F(": TTH Deleting."));
         Serial.print (F(", th#:"));
-        Serial.println (atomicx::kernel.GetThreadCount ());
+        Serial.println (GetThreadCount ());
         Serial.flush ();
         
     }

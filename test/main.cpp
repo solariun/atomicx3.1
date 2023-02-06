@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <iostream>
 
-class th : atomicx::Thread
+class th : public atomicx::Thread
 {
     private:
 
@@ -80,14 +80,14 @@ int main ()
 
     std::cout << "-------------------------------" << std::endl;
 
-    for (atomicx::Thread& a : atomicx::kernel)
+    for (atomicx::Thread& a : th1)
     {
         std::cout << (size_t) &a << " thread" << std::endl;
     }
 
-    std::cout << "-------------------------------" << std::endl << std::endl;
+    std::cout << "------------------------------- #:" << atomicx::Kernel::m_nNodeCounter << std::endl << std::endl;
 
-    atomicx::kernel.Join ();
+    atomicx::Thread::Join ();
     
     std::cout << "End Application" << std::endl << std::endl;
        
