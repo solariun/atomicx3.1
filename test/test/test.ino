@@ -1,133 +1,22 @@
 
 #include "atomicx.hpp"
 
+#include "test.h"
 
-class tth : atomicx::Thread
+atomicx_time atomicx::Kernel::GetTick(void)
 {
-    private:
-        volatile size_t nStack [20];
+    return millis();
+}
 
-    public:
-
-    tth () : Thread (100, nStack)
-    {
-        // Serial.print ((size_t) this);
-        // Serial.println (F(": Initiating."));
-        // Serial.flush ();
-    }
-
-    virtual ~tth ()
-    {
-        Serial.print ((size_t) this);
-        Serial.print (F(": TTH Deleting."));
-        Serial.print (F(", th#:"));
-        Serial.println (atomicx::kernel.GetThreadCount ());
-        Serial.flush ();
-        
-    }
-
-    virtual void run ()
-    {
-        int nValue = 0;
-    
-        while (true)
-        {
-        
-            Serial.print ((size_t) this);
-            Serial.print (F(": TTH Vall:"));
-            Serial.print (nValue++);
-            Serial.print (F(", stk:"));
-            Serial.println (GetStackSize ());
-            Serial.flush ();
-
-           Yield ();
-        }
-
-        Serial.print ((size_t) this);
-        Serial.print (F(": Ending thread."));
-        Serial.flush ();
-    }
-
-    virtual const char* GetName () final
-    {
-        return "TTh ";
-    }
-};
-
-class th : atomicx::Thread
+void atomicx::Kernel::SleepTick(atomicx_time nSleep)
 {
-    private:
-        volatile size_t nStack [20];
+    delay(nSleep);
+}
 
-    public:
-
-    th () : Thread (100, nStack)
-    {
-        // Serial.print ((size_t) this);
-        // Serial.println (F(": Initiating."));
-        // Serial.flush ();
-    }
-
-    virtual ~th ()
-    {
-        Serial.print ((size_t) this);
-        Serial.println (F(": Deleting."));
-        Serial.flush ();
-    }
-
-    void yield_in ()
-    {
-      Yield ();
-    }
-
-    void yield ()
-    {
-        yield_in ();
-    }
-
-    virtual void run ()
-    {
-        int nValue = 0;
-        tth* th =  nullptr;
-
-        while (true)
-        {
-            yield ();
-
-            Serial.print ((size_t) this);
-            Serial.print (F(":TEST Vall:"));
-            Serial.print (nValue++);
-            Serial.print (F(", th#:"));
-            Serial.println (atomicx::kernel.GetThreadCount ());
-            Serial.flush ();
-
-            if (nValue && nValue % 50 == 0) 
-            {
-                if (!th)
-                {
-                    th = new tth ();
-                    delay(100);
-                }
-                else
-                {
-                    delete th;
-                    th = nullptr,
-                    delay(100);
-                }
-            }
-        }
-
-        Serial.print ((size_t) this);
-        Serial.print (F(": Ending thread."));
-        Serial.flush ();
-    }
-
-    virtual const char* GetName () final
-    {
-        return "Thread Test";
-    }
-};
-
+void yield_in ()
+{
+    atomicx::kernel.Yield ();
+}
 
 th th1;
 th th2;

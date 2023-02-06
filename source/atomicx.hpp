@@ -236,6 +236,33 @@ namespace atomicx
 
         public:
 
+            /*
+            * ATTENTION: GetTick and SleepTick MUST be ported from user
+            *
+            * crete functions with the following prototype on your code,
+            * for example, see test/main.cpp
+            *
+            *   atomicx_time atomicx::Kernel::GetTick (void) { <code> }
+            *   void atomicx::Kernel::SleepTick(atomicx_time nSleep) { <code> }
+            */
+
+            /**
+             * @brief Implement the custom Tick acquisition
+             *
+             * @return atomicx_time
+             */
+            atomicx_time GetTick(void);
+
+            /**
+             * @brief Implement a custom sleep, usually based in the same GetTick granularity
+             *
+             * @param nSleep    How long custom tick to wait
+             *
+             * @note This function is particularly special, since it give freedom to tweak the
+             *       processor power consumption if necessary
+             */
+            void SleepTick(atomicx_time nSleep);
+            
             Kernel () 
             {
                 
@@ -255,15 +282,7 @@ namespace atomicx
 
             bool Yield ();
 
-            void Start (volatile uint8_t* start)
-            {
-                m_pStartStack = start;
-            }
-
-            size_t GetThreadCount ()
-            {
-                return m_nNodeCounter;
-            }
+            size_t GetThreadCount ();
     };
 
     static Kernel kernel;
@@ -310,27 +329,17 @@ namespace atomicx
 
         public:
 
-            virtual const char* GetName () = 0;
-            
-            virtual ~Thread ()
-            {
-                DetachThread (kernel, *this);
-            }
-
-            size_t GetStackSize ()
-            {
-                return nStackSize;
-            }
-
-            size_t GetMaxStackSize ()
-            {
-                return m_nMaxStackSize;
-            }
-
-            bool Yield ()
+            static bool Yield ()
             {
                 return kernel.Yield ();
             }
+            virtual const char* GetName () = 0;
+            
+            virtual ~Thread ();
+
+            size_t GetStackSize ();
+
+            size_t GetMaxStackSize ();
     };
 
     static bool AttachThread (Kernel& kernel, Thread& thread)

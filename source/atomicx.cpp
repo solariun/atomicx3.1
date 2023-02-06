@@ -10,6 +10,10 @@
 
 namespace atomicx
 {
+
+    /*
+        KERNEL 
+    */
     Thread* Kernel::GetCyclicalNext()
     {
         return (m_pCurrent->pNext) == nullptr ? (m_pCurrent = m_pBegin) : m_pCurrent->pNext;
@@ -78,4 +82,27 @@ namespace atomicx
         return false;
     }
 
+    size_t Kernel::GetThreadCount ()
+    {
+        return m_nNodeCounter;
+    }
+
+    /*
+        THREAD 
+    */
+
+    Thread::~Thread ()
+    {
+        DetachThread (kernel, *this);
+    }
+
+    size_t Thread::GetStackSize ()
+    {
+        return nStackSize;
+    }
+
+    size_t Thread::GetMaxStackSize ()
+    {
+        return m_nMaxStackSize;
+    }
 }
