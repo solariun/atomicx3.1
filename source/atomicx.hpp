@@ -219,18 +219,20 @@ namespace atomicx
             friend bool AttachThread (Kernel&, Thread&);
             friend bool DetachThread (Kernel&, Thread&);
 
-            Thread* pBegin = nullptr;
-            Thread* pEnd = nullptr;
-            Thread* pCurrent = nullptr;
+            Thread* m_pBegin = nullptr;
+            Thread* m_pEnd = nullptr;
+            Thread* m_pCurrent = nullptr;
 
             size_t m_nNodeCounter = 0;
 
         protected:
             friend class Thread;
 
-            Thread* GetCyclicalNext();
+            volatile uint8_t* m_pStartStack = nullptr;
+
             jmp_buf m_joinContext = {};
-            volatile uint8_t* pStartStack = nullptr;
+
+            Thread* GetCyclicalNext();
 
         public:
 
@@ -241,7 +243,7 @@ namespace atomicx
 
             Iterator<Thread> begin()
             {
-                return Iterator<Thread>(pBegin);
+                return Iterator<Thread>(m_pBegin);
             } 
 
             Iterator<Thread> end()
@@ -255,7 +257,7 @@ namespace atomicx
 
             void Start (volatile uint8_t* start)
             {
-                pStartStack = start;
+                m_pStartStack = start;
             }
 
             size_t GetThreadCount ()
@@ -264,7 +266,7 @@ namespace atomicx
             }
     };
 
-    Kernel kernel;
+    static Kernel kernel;
 
     /*
         THREAD CLASS 
@@ -281,7 +283,7 @@ namespace atomicx
             // Thread context register buffer
             jmp_buf m_context = {};
 
-            volatile uint8_t* pEndStack = nullptr;
+            volatile uint8_t* m_pEndStack = nullptr;
 
             atomicx_time m_nNice = 0;
 
@@ -331,18 +333,18 @@ namespace atomicx
             }
     };
 
-    bool AttachThread (Kernel& kernel, Thread& thread)
+    static bool AttachThread (Kernel& kernel, Thread& thread)
     {
-        if (kernel.pBegin == nullptr)
+        if (kernel.m_pBegin == nullptr)
         {
-            kernel.pBegin = &thread;
-            kernel.pEnd = kernel.pBegin;
+            kernel.m_pBegin = &thread;
+            kernel.m_pEnd = kernel.m_pBegin;
         }
         else
         {
-            thread.pPrev = kernel.pEnd;
-            kernel.pEnd->pNext = &thread;
-            kernel.pEnd = &thread;
+            thread.pPrev = kernel.m_pEnd;
+            kernel.m_pEnd->pNext = &thread;
+            kernel.m_pEnd = &thread;
         }
 
         kernel.m_nNodeCounter++;
@@ -355,18 +357,18 @@ namespace atomicx
     {
         if (thread.pNext == nullptr && thread.pPrev == nullptr)
         {
-            kernel.pBegin = nullptr;
+            kernel.m_pBegin = nullptr;
             thread.pPrev = nullptr;
         }
         else if (thread.pPrev == nullptr)
         {
             thread.pNext->pPrev = nullptr;
-            kernel.pBegin = thread.pNext;
+            kernel.m_pBegin = thread.pNext;
         }
         else if (thread.pNext == nullptr)
         {
             thread.pPrev->pNext = nullptr;
-            kernel.pEnd = thread.pPrev;
+            kernel.m_pEnd = thread.pPrev;
         }
         else
         {
@@ -377,74 +379,6 @@ namespace atomicx
         kernel.m_nNodeCounter--;
 
         return true;
-    }
-
-    Thread* Kernel::GetCyclicalNext()
-    {
-        return (pCurrent->pNext) == nullptr ? (pCurrent = pBegin) : pCurrent->pNext;
-    }
-
-    bool Kernel::Join ()
-    {    
-        pCurrent = pEnd;
-
-        if (pCurrent != nullptr )
-        {
-            pStartStack = GetStackPoint (); //&nStackPoint;
-
-            setjmp (m_joinContext);
-
-            if (m_nNodeCounter == 0) return false;
-
-            pCurrent = GetCyclicalNext (); 
-
-            TRACE (TRACE, "------------------------------------");
-            TRACE (TRACE, pCurrent->GetName () << "_" <<(size_t) pCurrent << ": St [" << GetStatusName (pCurrent->m_status) << "]");
-            TRACE (TRACE, "Stack size: " << pCurrent->nStackSize << ", Max: " << pCurrent->m_nMaxStackSize << ", Occupied: " << (100*pCurrent->nStackSize)/(pCurrent->m_nMaxStackSize) << "%");
-
-            if (pCurrent->m_status ==  Status::starting)
-            {
-                pCurrent->m_status = Status::running;
-
-                pCurrent->run ();
-    
-                pCurrent->m_status = Status::starting;
-
-                longjmp (m_joinContext, 1);
-            }
-            else
-            {
-                longjmp (pCurrent->m_context, 1);
-            }
-        }
-
-        return false;
-    }
-
-    bool Kernel::Yield ()
-    {
-        pCurrent->pEndStack = GetStackPoint (); 
-        pCurrent->nStackSize = pStartStack - pCurrent->pEndStack + sizeof (size_t);
-
-        TRACE(TRACE, "Stack size: " << pCurrent->nStackSize << ", Max: " << pCurrent->m_nMaxStackSize << ", Occupied: " << (100*pCurrent->nStackSize)/(pCurrent->m_nMaxStackSize) << "%");
-
-        pCurrent->m_status = Status::sleeping;
-
-        if (setjmp (pCurrent->m_context) != 0)
-        {
-            pCurrent->nStackSize = pStartStack - pCurrent->pEndStack;
-            memcpy ((void*) pCurrent->pEndStack, (const void*) &pCurrent->m_stack, pCurrent->nStackSize);
-
-            TRACE(TRACE, (size_t) pCurrent << ": RETURNED from Join.");
-
-            return true;
-        } 
-
-        memcpy ((void*) &pCurrent->m_stack, (const void*) pCurrent->pEndStack, pCurrent->nStackSize);
-
-        longjmp (m_joinContext, 1);
-
-        return false;
     }
 
 }
