@@ -12,7 +12,7 @@ class th : public atomicx::Thread
 
     public:
 
-    th () : Thread (100, nStack)
+    th () : Thread (0, nStack)
     {
         // Serial.print ((size_t) this);
         // Serial.println (F(": Initiating."));

@@ -155,10 +155,6 @@ namespace atomicx
         }
     };
 
-    static bool AttachThread (Thread& thread);
-
-    static bool DetachThread (Thread& thread);
-
     enum class Status : uint8_t
     {
         none =0,
@@ -166,7 +162,7 @@ namespace atomicx
         wait=10,
         syncWait=11,
         ctxSwitch=12,
-        sleeping=13,
+        sleep=13,
         timeout=14,
         halted=15,
         paused=16,
@@ -189,7 +185,7 @@ namespace atomicx
             caseStatus (Status::syncWait);
             caseStatus (Status::ctxSwitch);
             
-            caseStatus (Status::sleeping);
+            caseStatus (Status::sleep);
             caseStatus (Status::timeout);
             caseStatus (Status::halted);
             caseStatus (Status::paused);
@@ -202,27 +198,6 @@ namespace atomicx
 
         return name;
     } 
-
-    /*
-        KERNEL internals
-    */
-
-    namespace Kernel 
-    {
-        static Thread* m_pBegin = nullptr;
-        static Thread* m_pEnd = nullptr;
-        static Thread* m_pCurrent = nullptr;
-
-        static size_t m_nNodeCounter = 0;
-
-        static volatile uint8_t* m_pStartStack = nullptr;
-
-        static jmp_buf m_joinContext = {};
-
-        static Thread* GetCyclicalNext();
-
-
-    }
 
     /*
         THREAD CLASS 
@@ -247,6 +222,8 @@ namespace atomicx
 
             static Thread* GetCyclicalNext();
             
+            static void Scheduller ();
+            
             /* ------------------------ */
 
             Status m_status = Status::starting;
@@ -257,6 +234,7 @@ namespace atomicx
             volatile uint8_t* m_pEndStack = nullptr;
 
             atomicx_time m_nNice = 0;
+            atomicx_time m_nextEvent = 0;
 
             size_t nStackSize = 0;
 
@@ -359,7 +337,7 @@ namespace atomicx
              *
              * @return atomicx_time
              */
-            atomicx_time GetTick(void);
+            static atomicx_time GetTick(void);
 
             /**
              * @brief Implement a custom sleep, usually based in the same GetTick granularity
@@ -369,11 +347,11 @@ namespace atomicx
              * @note This function is particularly special, since it give freedom to tweak the
              *       processor power consumption if necessary
              */
-            void SleepTick(atomicx_time nSleep);
+            static void SleepTick(atomicx_time nSleep);
 
             static bool Join ();
 
-            static bool Yield ();
+            static bool Yield (atomicx_time tm = 0, Status st = Status::sleep);
 
             size_t GetThreadCount ();
     };

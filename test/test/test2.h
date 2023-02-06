@@ -8,7 +8,7 @@ class tth : atomicx::Thread
 
     public:
 
-    tth () : Thread (100, nStack)
+    tth () : Thread (200, nStack)
     {
         // Serial.print ((size_t) this);
         // Serial.println (F(": Initiating."));

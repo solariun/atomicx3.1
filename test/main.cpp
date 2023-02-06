@@ -17,6 +17,27 @@
 #include <stdlib.h>
 #include <iostream>
 
+atomicx_time atomicx::Thread::GetTick (void)
+{
+    struct timeval tp;
+    gettimeofday (&tp, NULL);
+
+    return (atomicx_time)tp.tv_sec * 1000 + tp.tv_usec / 1000;
+}
+
+size_t nCounter = 0;
+
+void atomicx::Thread::SleepTick(atomicx_time nSleep)
+{
+#if 0
+    atomicx_time nCurrent= Atomicx_GetTick ();
+    std::cout << "Current: " << nCurrent << ", Sleep: " << nSleep << ", Thread time:" << atomicx::GetCurrent()->GetTargetTime () << ", Calculation:" << (atomicx::GetCurrent()->GetTargetTime () - nCurrent)<< std::endl << std::flush;
+    ListAllThreads();
+#endif
+
+    usleep ((useconds_t)nSleep * 1000);
+}
+
 class th : public atomicx::Thread
 {
     private:
@@ -37,7 +58,7 @@ class th : public atomicx::Thread
 
     void yield_in ()
     {
-       Yield ();
+       Yield (0, atomicx::Status::sleep);
     }
 
     void yield ()
@@ -56,8 +77,6 @@ class th : public atomicx::Thread
             yield ();
 
             TRACE (TRACE, ">>> Val: " << nValue++);
-
-            break;
         }
 
         TRACE (TRACE, "Leaving thread.");
@@ -69,10 +88,11 @@ class th : public atomicx::Thread
     }
 };
 
+th th1;
+th th2;
+
 int main ()
 {
-    th th1;
-    th th2;
     th th3;
     th th4;
 
@@ -85,7 +105,7 @@ int main ()
         std::cout << (size_t) &a << " thread" << std::endl;
     }
 
-    std::cout << "------------------------------- #:" << atomicx::Kernel::m_nNodeCounter << std::endl << std::endl;
+    std::cout << "------------------------------- #:" << std::endl << std::endl;
 
     atomicx::Thread::Join ();
     
