@@ -3,6 +3,8 @@
 
 #include "test.h"
 
+uint8_t notify = 0;
+
 atomicx_time atomicx::Thread::GetTick(void)
 {
     return millis();

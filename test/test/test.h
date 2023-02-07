@@ -5,6 +5,8 @@
 
 extern void yield_in ();
 
+extern uint8_t notify;
+
 class th : public atomicx::Thread
 {
     private:
@@ -35,19 +37,39 @@ class th : public atomicx::Thread
     {
         int nValue = 0;
         tth* th =  nullptr;
+        size_t nNotified;
 
         while (true)
         {
-            yield ();
+            nNotified = Notify (notify, 1, (size_t) this, 1, GetNice (), true);
+
+            nValue++;
 
             Serial.print ((size_t) this);
-            Serial.print (F(":TEST Vall:"));
-            Serial.print (nValue++);
-            Serial.print (F(", th#:"));
-            Serial.println (GetThreadCount ());
+
+            if (GetStatus() == atomicx::Status::timeout)
+            {
+                Serial.print (F(":TEST Timed out notifying"));
+            }
+            else
+            {
+                Serial.print (F(":TEST notified: "));
+                Serial.print (nNotified);
+                Serial.print ("      \r");
+            }
+
             Serial.flush ();
 
-            if (nValue && nValue % 50 == 0) 
+            // Serial.print ((size_t) this);
+            // Serial.print (F(":TEST Vall:"));
+            // Serial.print (nValue);
+            // Serial.print (F(", st#:"));
+            // Serial.print (GetStackSize ());
+            // Serial.print (F(", th#:"));
+            // Serial.println (GetThreadCount ());
+            // Serial.flush ();
+
+            if (nValue && nValue % 1000 == 0) 
             {
                 if (!th)
                 {

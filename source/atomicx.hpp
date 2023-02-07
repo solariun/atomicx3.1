@@ -59,11 +59,78 @@ namespace atomicx
 
     class Thread;
     
-    /*
-    * ---------------------------------------------------------------------
-    * Iterator Implementation
-    * ---------------------------------------------------------------------
+    /* *************************************************** *\
+        THREAD CLASS 
+    \* *************************************************** */
+
+    /**
+    * @brief General purpose timeout  facility
     */
+
+    class Timeout
+    {
+        public:
+
+            /**
+             * @brief Default construct a new Timeout object
+             *
+             * @note    To decrease the amount of memory, Timeout does not save
+             *          the start time.
+             *          Special use case: if nTimeoutValue == 0, IsTimedout is always false.
+             */
+            Timeout ();
+
+            /**
+             * @brief Construct a new Timeout object
+             *
+             * @param nTimeoutValue  Timeout value to be calculated
+             *
+             * @note    To decrease the amount of memory, Timeout does not save
+             *          the start time.
+             *          Special use case: if nTimeoutValue == 0, IsTimedout is always false.
+             */
+            Timeout (atomicx_time nTimeoutValue);
+
+            /**
+             * @brief Set a timeout from now
+             *
+             * @param nTimeoutValue timeout in atomicx_time
+             */
+            void Set(atomicx_time nTimeoutValue);
+
+            /**
+             * @brief Check wether it has timeout
+             *
+             * @return true if it timeout otherwise 0
+             */
+            bool IsTimedout();
+
+            /**
+             * @brief Get the remaining time till timeout
+             *
+             * @return atomicx_time Remaining time till timeout, otherwise 0;
+             */
+            atomicx_time GetRemaining();
+
+            /**
+             * @brief Get the Time Since specific point in time
+             *
+             * @param startTime     The specific point in time
+             *
+             * @return atomicx_time How long since the point in time
+             *
+             * @note    To decrease the amount of memory, Timeout does not save
+             *          the start time.
+             */
+            atomicx_time GetDurationSince(atomicx_time startTime);
+
+        private:
+            atomicx_time m_timeoutValue = 0;
+    };
+
+    /* *************************************************** *\
+        ITERATOR CLASS 
+    \* *************************************************** */
 
     /**
     * @brief General purpose Iterator facility
@@ -80,19 +147,34 @@ namespace atomicx
          *
          * @param ptr Type pointer to iterate
          */
-        Iterator(T*  ptr);
+        Iterator(T*  ptr) : m_ptr(ptr)
+        {}
 
         /*
         * Access operator
         */
-        T& operator*();
+        T& operator*()
+        {
+            return *m_ptr;
+        }
 
-        T* operator->();
+        T* operator->()
+        {
+            return &m_ptr;
+        }
 
         /*
         * Movement operator
         */
-        Iterator<T>& operator++();
+        Iterator<T>& operator++()
+        {
+            if (m_ptr != nullptr)
+            {
+                m_ptr = (T*) m_ptr->operator++ ();
+            }
+
+            return *this;
+        }
 
         /*
         * Binary operators
@@ -112,35 +194,6 @@ namespace atomicx
     private:
         T* m_ptr;
     };
-
-    template <typename T> Iterator<T>::Iterator(T*  ptr) : m_ptr(ptr)
-    {}
-
-    /*
-    * Access operator
-    */
-    template <typename T> T& Iterator<T>::operator*()
-    {
-        return *m_ptr;
-    }
-
-    template <typename T> T* Iterator<T>::operator->()
-    {
-        return &m_ptr;
-    }
-
-    /*
-    * Movement operator
-    */
-    template <typename T> Iterator<T>& Iterator<T>::operator++()
-    {
-        if (m_ptr != nullptr)
-        {
-            m_ptr = (T*) m_ptr->operator++ ();
-        }
-
-        return *this;
-    }
 
     struct KNode
     {
@@ -199,9 +252,11 @@ namespace atomicx
         return name;
     } 
 
-    /*
+    /* *************************************************** *\
         THREAD CLASS 
-    */
+    \* *************************************************** */
+
+    template <typename T> class Iterator;
 
     class Thread : public KNode
     {
@@ -226,6 +281,8 @@ namespace atomicx
             
             /* ------------------------ */
 
+            /* Kernel ------------------ */
+
             Status m_status = Status::starting;
 
             // Thread context register buffer
@@ -233,7 +290,7 @@ namespace atomicx
 
             volatile uint8_t* m_pEndStack = nullptr;
 
-            atomicx_time m_nNice = 0;
+            atomicx_time m_nice = 0;
             atomicx_time m_nextEvent = 0;
 
             size_t nStackSize = 0;
@@ -242,64 +299,153 @@ namespace atomicx
 
             volatile size_t&  m_stack; 
 
+            /* ------------------------ */
+
+            /* Notify payload -------- */
+            void* m_pWaitEndPoint;
+            size_t m_message = 0;
+            size_t m_msgType = 0;
+            size_t m_msgChannel = 0;
+
             Thread () = delete;
-            
+            /* ------------------------ */
+
         protected:
             virtual void run(void) = 0;
 
-            static bool AttachThread (Thread& thread)
-            {
-                if (m_pBegin == nullptr)
-                {
-                    m_pBegin = &thread;
-                    m_pEnd = m_pBegin;
-                }
-                else
-                {
-                    thread.pPrev = m_pEnd;
-                    m_pEnd->pNext = &thread;
-                    m_pEnd = &thread;
-                }
+            static bool AttachThread (Thread& thread);
 
-                m_nNodeCounter++;
-
-                return true;
-            }
-
-            static bool DetachThread (Thread& thread)
-            {
-                if (thread.pNext == nullptr && thread.pPrev == nullptr)
-                {
-                    m_pBegin = nullptr;
-                    thread.pPrev = nullptr;
-                }
-                else if (thread.pPrev == nullptr)
-                {
-                    thread.pNext->pPrev = nullptr;
-                    m_pBegin = thread.pNext;
-                }
-                else if (thread.pNext == nullptr)
-                {
-                    thread.pPrev->pNext = nullptr;
-                    m_pEnd = thread.pPrev;
-                }
-                else
-                {
-                    thread.pPrev->pNext = thread.pNext;
-                    thread.pNext->pPrev = thread.pPrev;
-                }
-
-                m_nNodeCounter--;
-
-                return true;
-            }
+            static bool DetachThread (Thread& thread);
 
             template<size_t N>Thread (atomicx_time nNice, volatile size_t (&stack)[N]) : 
-                m_nNice (nNice), 
+                m_nice (nNice), 
                 m_nMaxStackSize (N * sizeof (size_t)),
                 m_stack (stack [0])
             {
                 AttachThread (*this);
+            }
+
+            template<typename T> void SafeWait (T& var, size_t msgChannel, size_t message, size_t msgType)
+            {
+                m_pWaitEndPoint = reinterpret_cast<void*>(&var);
+
+                m_message = message;
+                m_msgType = msgType;
+                m_msgChannel = msgChannel;
+            }
+
+            template<typename T> size_t SafeNotify (T& var, size_t msgChannel, size_t message, size_t msgType, bool one, Status stType)
+            {
+                size_t nNotified = 0;
+
+                for (auto& th : *this)
+                {
+                    if (th.m_status == stType && th.m_pWaitEndPoint == reinterpret_cast<void*>(&var))
+                    {
+                        /* MessageType == 0 means accept all message from the same WaitEndPoint */
+                        if (th.m_msgChannel == msgChannel  || th.m_msgChannel == 0)
+                        {
+                            if (th.m_msgType == msgType || th.m_msgType == 0)
+                            {
+                                th.m_msgChannel = msgChannel;
+                                th.m_msgType = msgType;
+                                th.m_message = message;
+
+                                th.m_status = Status::now;
+                                th.m_nextEvent = GetTick ();
+
+                                nNotified++;
+
+                                if (one == true) break;
+                            }
+                        }
+                    }
+                }
+
+                return nNotified;
+            }
+
+            template<typename T> bool Wait (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
+            {
+                if (tm.GetRemaining () > 0)
+                {
+                    (void) SafeNotify (var, msgChannel, message, msgType, true, Status::syncWait);
+                }
+
+                SafeWait (var, msgChannel, message, msgType);
+
+                Yield (tm.GetRemaining (), Status::wait);
+
+                if (m_status == Status::timeout)
+                {
+                    return false;
+                }
+                
+                message = m_message;
+
+                return true;
+            }
+
+            template<typename T> bool WaitChannels (T& var, size_t& msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
+            {
+                if (tm.GetRemaining () > 0)
+                {
+                    (void) SafeNotify (var, 0, message, msgType, true, Status::syncWait);
+                }
+
+                SafeWait (var, 0, message, msgType);
+
+                Yield (tm.GetRemaining (), Status::wait);
+
+                if (m_status == Status::timeout)
+                {
+                    return false;
+                }
+                
+                message = m_message;
+                
+                return true;
+            }
+
+            template<typename T> bool WaitTypes (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
+            {
+                if (tm.GetRemaining () > 0)
+                {
+                    (void) SafeNotify (var, msgChannel, message, 0, true, Status::syncWait);
+                }
+
+                SafeWait (var, msgChannel, message, 0);
+
+                Yield (tm.GetRemaining (), Status::wait);
+
+                if (m_status == Status::timeout)
+                {
+                    return false;
+                }
+                
+                message = m_message;
+                
+                return true;
+            }
+
+            template<typename T> size_t Notify (T& var, size_t msgChannel, size_t message, size_t msgType, Timeout tm = 0, bool one = true)
+            {
+                size_t nNotified = 0;
+
+                if (tm.GetRemaining () > 0)
+                {
+                    SafeWait (var, msgChannel, message, msgType);
+
+                    Yield (tm.GetRemaining (), Status::syncWait);
+
+                    if (m_status == Status::timeout) return 0;
+                }
+
+                nNotified = SafeNotify (var, msgChannel, message, msgType, one, Status::wait);
+
+                Yield (0);
+
+                return nNotified;
             }
 
         public:
@@ -312,15 +458,9 @@ namespace atomicx
 
             size_t GetMaxStackSize ();
 
-            Iterator<Thread> begin()
-            {
-                return Iterator<Thread>(m_pBegin);
-            } 
+            Iterator<Thread> begin();
 
-            Iterator<Thread> end()
-            {
-                return Iterator<Thread>(nullptr);
-            }
+            Iterator<Thread> end();
 
             /*
             * ATTENTION: GetTick and SleepTick MUST be ported from user
@@ -354,8 +494,11 @@ namespace atomicx
             static bool Yield (atomicx_time tm = 0, Status st = Status::sleep);
 
             size_t GetThreadCount ();
-    };
 
+            Status GetStatus ();
+
+            atomicx_time GetNice ();
+    };
 
 }
 

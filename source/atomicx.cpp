@@ -10,6 +10,51 @@
 
 namespace atomicx
 {
+    /*
+     * Tiemout functions
+    */
+
+    /*
+    * timeout methods implementations
+    */
+
+    Timeout::Timeout () : m_timeoutValue (0)
+    {
+        Set (0);
+    }
+
+    Timeout::Timeout (atomicx_time nTimeoutValue) : m_timeoutValue (0)
+    {
+        Set (nTimeoutValue);
+    }
+
+    void Timeout::Set(atomicx_time nTimeoutValue)
+    {
+        m_timeoutValue = nTimeoutValue ? nTimeoutValue + Thread::GetTick () : 0;
+    }
+
+    bool Timeout::IsTimedout()
+    {
+        return (m_timeoutValue == 0 || Thread::GetTick () < m_timeoutValue) ? false : true;
+    }
+
+    atomicx_time Timeout::GetRemaining()
+    {
+        auto nNow = Thread::GetTick ();
+
+        return (nNow < m_timeoutValue) ? m_timeoutValue - nNow : 0;
+    }
+
+    atomicx_time Timeout::GetDurationSince(atomicx_time startTime)
+    {
+        return startTime - GetRemaining ();
+    }
+
+    /*
+        THREAD 
+    */
+
+   // Thread kernel static initializations
 
     Thread* Thread::m_pBegin = nullptr;
     Thread* Thread::m_pEnd = nullptr;
@@ -30,9 +75,55 @@ namespace atomicx
 
     volatile uint8_t* m_pEndStack = nullptr;
 
-    /*
-        KERNEL 
-    */
+    // Thread methods 
+    bool Thread::AttachThread (Thread& thread)
+    {
+        if (m_pBegin == nullptr)
+        {
+            m_pBegin = &thread;
+            m_pEnd = m_pBegin;
+        }
+        else
+        {
+            thread.pPrev = m_pEnd;
+            m_pEnd->pNext = &thread;
+            m_pEnd = &thread;
+        }
+
+        m_nNodeCounter++;
+
+        return true;
+    }
+
+    bool Thread::DetachThread (Thread& thread)
+    {
+        if (thread.pNext == nullptr && thread.pPrev == nullptr)
+        {
+            m_pBegin = nullptr;
+            thread.pPrev = nullptr;
+        }
+        else if (thread.pPrev == nullptr)
+        {
+            thread.pNext->pPrev = nullptr;
+            m_pBegin = thread.pNext;
+        }
+        else if (thread.pNext == nullptr)
+        {
+            thread.pPrev->pNext = nullptr;
+            m_pEnd = thread.pPrev;
+        }
+        else
+        {
+            thread.pPrev->pNext = thread.pNext;
+            thread.pNext->pPrev = thread.pPrev;
+        }
+
+        m_nNodeCounter--;
+
+        return true;
+    }
+
+   
     Thread* Thread::GetCyclicalNext()
     {
         return (m_pCurrent->pNext) == nullptr ? (m_pCurrent = m_pBegin) : m_pCurrent->pNext;
@@ -100,6 +191,11 @@ namespace atomicx
             }
             else
             {
+                if (m_pCurrent->m_status ==  Status::wait || m_pCurrent->m_status ==  Status::syncWait)
+                {
+                    m_pCurrent->m_status = Status::timeout;
+                }
+            
                 longjmp (m_pCurrent->m_context, 1);
             }
         }
@@ -122,7 +218,7 @@ namespace atomicx
         }
         else
         {
-            tm = GetTick () + (tm ? tm : m_pCurrent->m_nNice);
+            tm = GetTick () + (tm ? tm : m_pCurrent->m_nice);
         }
         
         m_pCurrent->m_status = st;
@@ -150,10 +246,6 @@ namespace atomicx
         return m_nNodeCounter;
     }
 
-    /*
-        THREAD 
-    */
-
     Thread::~Thread ()
     {
         DetachThread (*this);
@@ -167,5 +259,25 @@ namespace atomicx
     size_t Thread::GetMaxStackSize ()
     {
         return m_nMaxStackSize;
+    }
+
+    Iterator<Thread> Thread::begin()
+    {
+        return Iterator<Thread>(m_pBegin);
+    } 
+
+    Iterator<Thread> Thread::end()
+    {
+        return Iterator<Thread>(nullptr);
+    }
+
+    Status Thread::GetStatus ()
+    {
+        return m_status;
+    }
+
+    atomicx_time Thread::GetNice ()
+    {
+        return m_nice;
     }
 }
