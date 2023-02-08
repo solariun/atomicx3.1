@@ -280,4 +280,136 @@ namespace atomicx
     {
         return m_nice;
     }
+
+    bool Mutex::Lock(Timeout timeout)
+    {
+        auto pAtomic = Thread::m_pCurrent;
+
+        if(pAtomic == nullptr) return false;
+
+        // Get exclusive Mutex
+        while (bExclusiveLock) if  (! pAtomic->SysWait(bExclusiveLock, 1,  1, timeout.GetRemaining())) return false;
+
+        bExclusiveLock = true;
+
+        // Wait all shared locks to be done
+        while (nSharedLockCount) if (! pAtomic->SysWait(nSharedLockCount, 1, 2, timeout.GetRemaining())) return false;
+
+        return true;
+    }
+
+    void Mutex::Unlock()
+    {
+        auto pAtomic = Thread::m_pCurrent;
+
+        if(pAtomic == nullptr) return;
+
+        if (bExclusiveLock == true)
+        {
+            bExclusiveLock = false;
+
+            // Notify Other locks procedures
+            pAtomic->SysNotify(nSharedLockCount, 1,  2, false);
+            pAtomic->SysNotify(bExclusiveLock, 1, 1, true);
+        }
+    }
+
+    bool Mutex::SharedLock(Timeout timeout)
+    {
+        auto pAtomic = Thread::m_pCurrent;
+
+        if(pAtomic == nullptr) return false;
+
+        // Wait for exclusive Mutex
+        while (bExclusiveLock > 0) if (! pAtomic->SysWait(bExclusiveLock, 1, 1, timeout.GetRemaining())) return false;
+
+        nSharedLockCount++;
+
+        // Notify Other locks procedures
+        pAtomic->SysNotify (nSharedLockCount, 1, 2, true);
+
+        return true;
+    }
+
+    void Mutex::SharedUnlock()
+    {
+        auto pAtomic = Thread::m_pCurrent;
+
+        if(pAtomic == nullptr) return;
+
+        if (nSharedLockCount)
+        {
+            nSharedLockCount--;
+
+            pAtomic->SysNotify(nSharedLockCount, 1, 2, true);
+        }
+    }
+
+    size_t Mutex::IsShared()
+    {
+        return nSharedLockCount;
+    }
+
+    bool Mutex::IsLocked()
+    {
+        return bExclusiveLock;
+    }
+
+    SmartMutex::SmartMutex (Mutex& lockObj) : m_lock(lockObj)
+    {}
+
+    SmartMutex::~SmartMutex()
+    {
+        switch (m_lockType)
+        {
+            case 'L':
+                m_lock.Unlock();
+                break;
+            case 'S':
+                m_lock.SharedUnlock();
+                break;
+        }
+    }
+
+    bool SmartMutex::SharedLock(Timeout timeout)
+    {
+        bool bRet = false;
+
+        if (m_lockType == '\0')
+        {
+            if (m_lock.SharedLock(timeout))
+            {
+                m_lockType = 'S';
+                bRet = true;
+            }
+        }
+
+        return bRet;
+    }
+
+    bool SmartMutex::Lock(Timeout timeout)
+    {
+        bool bRet = false;
+
+        if (m_lockType == '\0')
+        {
+            if (m_lock.Lock(timeout))
+            {
+                m_lockType = 'L';
+                bRet = true;
+            }
+        }
+
+        return bRet;
+    }
+
+    size_t SmartMutex::IsShared()
+    {
+        return m_lock.IsShared();
+    }
+
+    bool SmartMutex::IsLocked()
+    {
+        return m_lock.IsLocked();
+    }
 }

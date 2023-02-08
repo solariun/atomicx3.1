@@ -257,6 +257,120 @@ namespace atomicx
         return name;
     } 
 
+    /**
+     * ------------------------------
+     * SMART LOCK IMPLEMENTATION
+     * ------------------------------
+     */
+
+    /* The stamart Mutex implementation */
+    class Mutex
+    {
+    public:
+        /**
+         * @brief Exclusive/binary lock the smart lock
+         *
+         * @note Once Lock() methos is called, if any thread held a shared lock,
+         *       the Lock will wait for it to finish in order to acquire the exclusive
+         *       lock, and all other threads that needs to a shared lock will wait till
+         *       Lock is accquired and released.
+         */
+        bool Lock(Timeout timeout=0);
+
+        /**
+         * @brief Release the exclusive lock
+         */
+        void Unlock();
+
+        /**
+         * @brief Shared Lock for the smart Lock
+         *
+         * @note Shared lock can only be accquired if no Exclusive lock is waiting or already accquired a exclusive lock,
+         *       In contrast, if at least one thread holds a shared lock, any exclusive lock can only be accquired once it
+         *       is released.
+         */
+        bool SharedLock(Timeout timeout=0);
+
+        /**
+         * @brief Release the current shared lock
+         */
+        void SharedUnlock();
+
+        /**
+         * @brief Check how many shared locks are accquired
+         *
+         * @return size_t   Number of threads holding shared locks
+         */
+        size_t IsShared();
+
+        /**
+         * @brief Check if a exclusive lock has been already accquired
+         *
+         * @return true if yes, otherwise false
+         */
+        bool IsLocked();
+
+    protected:
+    private:
+        size_t nSharedLockCount=0;
+        bool bExclusiveLock=false;
+    };
+
+    /**
+     * @brief RII compliance lock/shared lock to auto unlock on destruction
+     *
+     */
+    class SmartMutex
+    {
+        public:
+            SmartMutex() = delete;
+
+            /**
+             * @brief Construct a new Smart Lock object based a existing lock
+             *
+             * @param lockObj the existing lock object
+             */
+            SmartMutex (Mutex& lockObj);
+
+            /**
+             * @brief Destroy and release the smart lock taken
+             */
+            ~SmartMutex();
+
+            /**
+             * @brief Acquire a SharedLock
+             *
+             * @return true if accquired, false if another accquisition was already done
+             */
+            bool SharedLock(Timeout timeout=0);
+
+            /**
+             * @brief Acquire a exclusive Lock
+             *
+             * @return true if accquired, false if another accquisition was already done
+             */
+            bool Lock(Timeout timeout=0);
+
+            /**
+             * @brief Check how many shared locks are accquired
+             *
+             * @return size_t   Number of threads holding shared locks
+             */
+            size_t IsShared();
+
+            /**
+             * @brief Check if a exclusive lock has been already accquired
+             *
+             * @return true if yes, otherwise false
+             */
+            bool IsLocked();
+
+        private:
+
+        Mutex& m_lock;
+        uint8_t m_lockType = '\0';
+    };
+    
     /* *************************************************** *\
         THREAD CLASS 
     \* *************************************************** */
@@ -269,6 +383,9 @@ namespace atomicx
             friend bool AttachThread (Thread&);
             friend bool DetachThread (Thread&);
 
+            friend class Mutex;
+            friend class SmartMutex;
+            
             /* Kernel ------------------ */
             static Thread* m_pBegin;
             static Thread* m_pEnd;
@@ -315,13 +432,13 @@ namespace atomicx
             Thread () = delete;
             /* ------------------------ */
 
-            #define _WAIT(syncType, waitType) \
+            #define _WAIT(msgChannel, msgType, syncType, waitType) \
                 if (tm.GetRemaining () > 0) \
                 { \
-                    (void) SafeNotify (var, msgChannel, message, msgType, true, syncType); \
+                    (void) SafeNotify (var, msgChannel, 0, msgType, true, syncType); \
                 } \
                 \
-                SafeWait (var, msgChannel, message, msgType); \
+                SafeWait (var, msgChannel, msgType); \
                 \
                 Yield (tm.GetRemaining (), waitType); \
                 \
@@ -330,20 +447,26 @@ namespace atomicx
                     return false; \
                 }
 
-            template<typename T> bool SysWait (T& var, size_t& msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
+            template<typename T> bool SysWait (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
             {
-                _WAIT (Status::syncSysWait, Status::sysWait);
+                _WAIT (msgChannel, msgType, Status::syncSysWait, Status::sysWait);
                 
                 message = m_message;
-                msgChannel = m_msgChannel;
                 
                 return true;
             }
 
-            #define _NOTIFY(var, msgChannel, message, msgType, tm, one, syncType, waitType) \
+            template<typename T> bool SysWait (T& var, size_t msgChannel, size_t msgType, Timeout tm = 0)
+            {
+                _WAIT (msgChannel, msgType, Status::syncSysWait, Status::sysWait);
+                                
+                return true;
+            }
+
+            #define _NOTIFY(message, syncType, waitType) \
                 if (tm.GetRemaining () > 0) \
                 { \
-                    SafeWait (var, msgChannel, message, msgType); \
+                    SafeWait (var, msgChannel, msgType); \
                     \
                     Yield (tm.GetRemaining (), syncType); \
                     \
@@ -354,11 +477,20 @@ namespace atomicx
                 \
                 Yield (0);
 
+            template<typename T> size_t SysNotify (T& var, size_t msgChannel, size_t msgType, Timeout tm = 0, bool one = true)
+            {
+                size_t nNotified = 0;
+
+                _NOTIFY (0, Status::syncSysWait, Status::sysWait);
+
+                return nNotified;
+            }
+
             template<typename T> size_t SysNotify (T& var, size_t msgChannel, size_t message, size_t msgType, Timeout tm = 0, bool one = true)
             {
                 size_t nNotified = 0;
 
-                _NOTIFY (var, msgChannel, message, msgType, tm, one, Status::syncSysWait, Status::sysWait);
+                _NOTIFY (message, Status::syncSysWait, Status::sysWait);
 
                 return nNotified;
             }
@@ -378,11 +510,10 @@ namespace atomicx
                 AttachThread (*this);
             }
 
-            template<typename T> void SafeWait (T& var, size_t msgChannel, size_t message, size_t msgType)
+            template<typename T> void SafeWait (T& var, size_t msgChannel, size_t msgType)
             {
                 m_pWaitEndPoint = static_cast<void*>(&var);
 
-                m_message = message;
                 m_msgType = msgType;
                 m_msgChannel = msgChannel;
             }
@@ -418,9 +549,16 @@ namespace atomicx
                 return nNotified;
             }
 
+            template<typename T> bool Wait (T& var, size_t msgChannel, size_t msgType, Timeout tm = 0)
+            {
+                _WAIT (msgChannel, msgType, Status::syncWait, Status::wait);
+
+                return true;
+            }
+
             template<typename T> bool Wait (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
             {
-                _WAIT (Status::syncWait, Status::wait);
+                _WAIT (msgChannel, msgType, Status::syncWait, Status::wait);
 
                 message = m_message;
 
@@ -429,7 +567,7 @@ namespace atomicx
 
             template<typename T> bool Wait (T& var, size_t msgChannel, size_t& message, size_t &msgType, Timeout tm = 0)
             {
-                _WAIT (Status::syncWait, Status::wait);
+                _WAIT (msgChannel, 0, Status::syncWait, Status::wait);
                 
                 message = m_message;
                 msgType = m_msgType;
@@ -437,11 +575,20 @@ namespace atomicx
                 return true;
             }
 
+            template<typename T> size_t Notify (T& var, size_t msgChannel, size_t msgType, Timeout tm = 0, bool one = true)
+            {
+                size_t nNotified = 0;
+
+                _NOTIFY (0, Status::syncWait, Status::wait);
+
+                return nNotified;
+            }
+
             template<typename T> size_t Notify (T& var, size_t msgChannel, size_t message, size_t msgType, Timeout tm = 0, bool one = true)
             {
                 size_t nNotified = 0;
 
-                _NOTIFY (var, msgChannel, message, msgType, tm, one, Status::syncWait, Status::wait);
+                _NOTIFY (message, Status::syncWait, Status::wait);
 
                 return nNotified;
             }
@@ -497,6 +644,7 @@ namespace atomicx
 
             atomicx_time GetNice ();
     };
+
 
 }
 
