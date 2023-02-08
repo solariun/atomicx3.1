@@ -219,6 +219,8 @@ namespace atomicx
         timeout=14,
         halted=15,
         paused=16,
+        syncSysWait=17,
+        sysWait=18,
         locked=100,
         running=200,
         now=201
@@ -237,7 +239,10 @@ namespace atomicx
             caseStatus (Status::wait);
             caseStatus (Status::syncWait);
             caseStatus (Status::ctxSwitch);
-            
+
+            caseStatus (Status::sysWait);
+            caseStatus (Status::syncSysWait);
+
             caseStatus (Status::sleep);
             caseStatus (Status::timeout);
             caseStatus (Status::halted);
@@ -310,6 +315,54 @@ namespace atomicx
             Thread () = delete;
             /* ------------------------ */
 
+            #define _WAIT(syncType, waitType) \
+                if (tm.GetRemaining () > 0) \
+                { \
+                    (void) SafeNotify (var, msgChannel, message, msgType, true, syncType); \
+                } \
+                \
+                SafeWait (var, msgChannel, message, msgType); \
+                \
+                Yield (tm.GetRemaining (), waitType); \
+                \
+                if (m_status == Status::timeout) \
+                { \
+                    return false; \
+                }
+
+            template<typename T> bool SysWait (T& var, size_t& msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
+            {
+                _WAIT (Status::syncSysWait, Status::sysWait);
+                
+                message = m_message;
+                msgChannel = m_msgChannel;
+                
+                return true;
+            }
+
+            #define _NOTIFY(var, msgChannel, message, msgType, tm, one, syncType, waitType) \
+                if (tm.GetRemaining () > 0) \
+                { \
+                    SafeWait (var, msgChannel, message, msgType); \
+                    \
+                    Yield (tm.GetRemaining (), syncType); \
+                    \
+                    if (m_status == Status::timeout) return 0; \
+                } \
+                \
+                nNotified = SafeNotify (var, msgChannel, message, msgType, one, waitType); \
+                \
+                Yield (0);
+
+            template<typename T> size_t SysNotify (T& var, size_t msgChannel, size_t message, size_t msgType, Timeout tm = 0, bool one = true)
+            {
+                size_t nNotified = 0;
+
+                _NOTIFY (var, msgChannel, message, msgType, tm, one, Status::syncSysWait, Status::sysWait);
+
+                return nNotified;
+            }
+
         protected:
             virtual void run(void) = 0;
 
@@ -327,7 +380,7 @@ namespace atomicx
 
             template<typename T> void SafeWait (T& var, size_t msgChannel, size_t message, size_t msgType)
             {
-                m_pWaitEndPoint = reinterpret_cast<void*>(&var);
+                m_pWaitEndPoint = static_cast<void*>(&var);
 
                 m_message = message;
                 m_msgType = msgType;
@@ -340,7 +393,7 @@ namespace atomicx
 
                 for (auto& th : *this)
                 {
-                    if (th.m_status == stType && th.m_pWaitEndPoint == reinterpret_cast<void*>(&var))
+                    if (th.m_status == stType && th.m_pWaitEndPoint == static_cast<void*>(&var))
                     {
                         /* MessageType == 0 means accept all message from the same WaitEndPoint */
                         if (th.m_msgChannel == msgChannel  || th.m_msgChannel == 0)
@@ -367,63 +420,19 @@ namespace atomicx
 
             template<typename T> bool Wait (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
             {
-                if (tm.GetRemaining () > 0)
-                {
-                    (void) SafeNotify (var, msgChannel, message, msgType, true, Status::syncWait);
-                }
+                _WAIT (Status::syncWait, Status::wait);
 
-                SafeWait (var, msgChannel, message, msgType);
-
-                Yield (tm.GetRemaining (), Status::wait);
-
-                if (m_status == Status::timeout)
-                {
-                    return false;
-                }
-                
                 message = m_message;
 
                 return true;
             }
 
-            template<typename T> bool WaitChannels (T& var, size_t& msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
+            template<typename T> bool Wait (T& var, size_t msgChannel, size_t& message, size_t &msgType, Timeout tm = 0)
             {
-                if (tm.GetRemaining () > 0)
-                {
-                    (void) SafeNotify (var, 0, message, msgType, true, Status::syncWait);
-                }
-
-                SafeWait (var, 0, message, msgType);
-
-                Yield (tm.GetRemaining (), Status::wait);
-
-                if (m_status == Status::timeout)
-                {
-                    return false;
-                }
+                _WAIT (Status::syncWait, Status::wait);
                 
                 message = m_message;
-                
-                return true;
-            }
-
-            template<typename T> bool WaitTypes (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
-            {
-                if (tm.GetRemaining () > 0)
-                {
-                    (void) SafeNotify (var, msgChannel, message, 0, true, Status::syncWait);
-                }
-
-                SafeWait (var, msgChannel, message, 0);
-
-                Yield (tm.GetRemaining (), Status::wait);
-
-                if (m_status == Status::timeout)
-                {
-                    return false;
-                }
-                
-                message = m_message;
+                msgType = m_msgType;
                 
                 return true;
             }
@@ -432,18 +441,7 @@ namespace atomicx
             {
                 size_t nNotified = 0;
 
-                if (tm.GetRemaining () > 0)
-                {
-                    SafeWait (var, msgChannel, message, msgType);
-
-                    Yield (tm.GetRemaining (), Status::syncWait);
-
-                    if (m_status == Status::timeout) return 0;
-                }
-
-                nNotified = SafeNotify (var, msgChannel, message, msgType, one, Status::wait);
-
-                Yield (0);
+                _NOTIFY (var, msgChannel, message, msgType, tm, one, Status::syncWait, Status::wait);
 
                 return nNotified;
             }

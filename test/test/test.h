@@ -43,6 +43,8 @@ class th : public atomicx::Thread
         {
             nNotified = Notify (notify, 1, (size_t) this, 1, GetNice (), true);
 
+            //Yield ();
+
             nValue++;
 
             Serial.print ((size_t) this);

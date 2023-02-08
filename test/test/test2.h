@@ -57,7 +57,7 @@ class tth : atomicx::Thread
             Serial.println (F(""));
             Serial.flush ();
 
-           Yield ();
+           Yield (0);
         }
 
         Serial.print ((size_t) this);
