@@ -88,6 +88,12 @@ define FUNC_MAKE_DIR
 	fi
 endef
 
+TEST_DIR ?= test
+
+PROJECT ?= test
+
+SOURCE_DIR ?= $(TEST_DIR)/$(PROJECT)
+
 .PHONY: build
 
 # same as all:
@@ -117,11 +123,17 @@ gdb: clean build
 	@echo starting lldb $(TARGET)
 	gdb $(TARGET)
 
+# ------------------------------
+# Arduino project, use variable PROJECT=name 
+# to select which project to compile and flash
+# if not supplied it will use test/test as default.
+# ------------------------------
+
 nano:
-	arduino-cli compile -b arduino:avr:nano:cpu=atmega328 --build-property build.extra_flags='$(EXTRA_FLAGS)' --upload -P usbasp  test/test
+	arduino-cli compile -b arduino:avr:nano:cpu=atmega328 --build-property build.extra_flags='$(EXTRA_FLAGS)' --upload -P usbasp  "$(SOURCE_DIR)"
 
 esp8266:
-	arduino-cli compile -v -b esp8266:esp8266:nodemcuv2:baud=921600 --build-property build.extra_flags='$(EXTRA_FLAGS)' -upload -p "$(serial)" test/test
+	arduino-cli compile -v -b esp8266:esp8266:nodemcuv2:baud=921600 --build-property build.extra_flags='$(EXTRA_FLAGS)' -upload -p "$(serial)" "$(SOURCE_DIR)"
 
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TARGET) $(OBJS) $(LFLAGS) $(LIBS)

@@ -29,78 +29,116 @@ size_t nCounter = 0;
 
 void atomicx::Thread::SleepTick(atomicx_time nSleep)
 {
-#if 0
-    atomicx_time nCurrent= Atomicx_GetTick ();
-    std::cout << "Current: " << nCurrent << ", Sleep: " << nSleep << ", Thread time:" << atomicx::GetCurrent()->GetTargetTime () << ", Calculation:" << (atomicx::GetCurrent()->GetTargetTime () - nCurrent)<< std::endl << std::flush;
-    ListAllThreads();
-#endif
-
     usleep ((useconds_t)nSleep * 1000);
 }
 
-class th : public atomicx::Thread
+atomicx::Mutex mutex;
+
+uint32_t nValue = 0;
+
+class Reader : public atomicx::Thread
 {
     private:
-
-        volatile size_t nStack [100];
+        volatile size_t nStack [40];
 
     public:
 
-    th () : Thread (100, nStack)
+    Reader () : Thread (0, nStack)
     {
-        std::cout << (size_t) this << ": Initiating." << std::endl;
+        TRACE (INFO, "Initiating thread.");
     }
 
-    ~th ()
+    virtual ~Reader () final
     {
-        std::cout << (size_t) this << ": Deleting." << std::endl;
+        TRACE (INFO, "Deleting");
     }
 
-    void yield_in ()
-    {
-       Yield (0, atomicx::Status::sleep);
-    }
 
-    void yield ()
+    virtual void run () final 
     {
-        yield_in ();
-    }
+        TRACE (INFO, "Starting thread.");
 
-    virtual void run ()
-    {
-        int nValue = 0;
-
-        yield ();
-        
-        while (true)
+        while (Yield ())
         {
-            yield ();
+            TRACE (INFO, "bExclusiveLock: [" << mutex.bExclusiveLock << "], nSharedLockCount: [" << mutex.nSharedLockCount << "]");
 
-            TRACE (TRACE, ">>> Val: " << nValue++);
+            if (mutex.SharedLock (10000))
+            {
+                TRACE (INFO, "Read value: [" << nValue << "], Stack: [" << GetStackSize () << "]");
+                
+                mutex.SharedUnlock ();
+            }
         }
 
-        TRACE (TRACE, "Leaving thread.");
+        TRACE (INFO, "Ending thread.");
     }
 
     virtual const char* GetName () final
     {
-        return "Thread Test";
+        return "Reader";
     }
 };
 
-th th1;
-th th2;
+class Writer : public atomicx::Thread
+{
+    private:
+        volatile size_t nStack [40];
+
+    public:
+
+    Writer () : Thread (0, nStack)
+    {
+        TRACE (INFO, "Initiating thread.");
+    }
+
+    virtual ~Writer () final
+    {
+        TRACE (INFO, "Deleting");
+    }
+
+    virtual void run () final 
+    {
+        TRACE (INFO, "Starting thread.");
+
+        while (true)
+        {
+            TRACE (INFO, "Acquiring exclusive lock.");
+
+            TRACE (INFO, "bExclusiveLock: [" << mutex.bExclusiveLock << "], nSharedLockCount: [" << mutex.nSharedLockCount << "]");
+
+            if (mutex.Lock (10000))
+            {
+                nValue++;
+
+                TRACE (INFO, "Written value: [" << nValue << "], Stack: [" << GetStackSize () << "]");
+
+                mutex.Unlock ();
+            }
+        }
+
+        TRACE (INFO, "Ending thread.");
+
+        Yield ();
+    }
+
+    virtual const char* GetName () final
+    {
+        return "Writer";
+    }
+};
+
+Reader r1;
+
+Writer w1;
 
 int main ()
 {
-    th th3;
-    th th4;
 
     std::cout << "Beging Application" << std::endl << std::endl;
 
     std::cout << "-------------------------------" << std::endl;
 
-    for (atomicx::Thread& a : th1)
+    for (atomicx::Thread& a : r1)
     {
         std::cout << (size_t) &a << " thread" << std::endl;
     }

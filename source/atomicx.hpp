@@ -38,7 +38,7 @@ typedef uint32_t atomicx_time;
 
 #ifdef _DEBUG
 #include <iostream>
-#define TRACE(i, x) if (DBGLevel::i <= DBGLevel::_DEBUG) std::cout << "[" << #i << "] "  << "(" << __FUNCTION__ << ", " << __FILE_NAME__ << ":" << __LINE__ << "):  " << x << std::endl << std::flush
+#define TRACE(i, x) if (DBGLevel::i <= DBGLevel::_DEBUG) std::cout << Thread::GetCurrent() << "(" << Thread::GetCurrent()->GetName () << ")[" << #i << "] "  << "(" << __FUNCTION__ << ", " << __FILE_NAME__ << ":" << __LINE__ << "):  " << x << std::endl << std::flush
 #else
 #define TRACE(i, x) NOTRACE(i,x)
 #endif
@@ -135,7 +135,7 @@ namespace atomicx
     /**
     * @brief General purpose Iterator facility
     *
-    * @tparam T
+    * @tparam T Type of the object used for iteraction
     */
     template <typename T> class Iterator
     {
@@ -257,6 +257,8 @@ namespace atomicx
         return name;
     } 
 
+    #define SYSTEM_CHANNEL 1
+
     /**
      * ------------------------------
      * SMART LOCK IMPLEMENTATION
@@ -275,12 +277,14 @@ namespace atomicx
          *       lock, and all other threads that needs to a shared lock will wait till
          *       Lock is accquired and released.
          */
-        bool Lock(Timeout timeout=0);
+        bool Lock (Timeout timeout=0);
+
+        bool TryLock ();
 
         /**
          * @brief Release the exclusive lock
          */
-        void Unlock();
+        void Unlock ();
 
         /**
          * @brief Shared Lock for the smart Lock
@@ -289,29 +293,31 @@ namespace atomicx
          *       In contrast, if at least one thread holds a shared lock, any exclusive lock can only be accquired once it
          *       is released.
          */
-        bool SharedLock(Timeout timeout=0);
+        bool SharedLock (Timeout timeout=0);
+
+        bool TrySharedLock ();
 
         /**
          * @brief Release the current shared lock
          */
-        void SharedUnlock();
+        void SharedUnlock ();
 
         /**
-         * @brief Check how many shared locks are accquired
+         * @brief Check how many shared locks are acquired
          *
          * @return size_t   Number of threads holding shared locks
          */
-        size_t IsShared();
+        size_t IsShared ();
 
         /**
-         * @brief Check if a exclusive lock has been already accquired
+         * @brief Check if a exclusive lock has been already acquired
          *
          * @return true if yes, otherwise false
          */
-        bool IsLocked();
+        bool IsLocked ();
 
     protected:
-    private:
+    public:
         size_t nSharedLockCount=0;
         bool bExclusiveLock=false;
     };
@@ -323,7 +329,7 @@ namespace atomicx
     class SmartMutex
     {
         public:
-            SmartMutex() = delete;
+            SmartMutex () = delete;
 
             /**
              * @brief Construct a new Smart Lock object based a existing lock
@@ -335,35 +341,38 @@ namespace atomicx
             /**
              * @brief Destroy and release the smart lock taken
              */
-            ~SmartMutex();
+            ~SmartMutex ();
 
             /**
              * @brief Acquire a SharedLock
              *
-             * @return true if accquired, false if another accquisition was already done
+             * @return true if acquired, false if another acquisition was already done
              */
-            bool SharedLock(Timeout timeout=0);
+            bool SharedLock (Timeout timeout=0);
+
+            bool TrySharedLock ();
 
             /**
              * @brief Acquire a exclusive Lock
              *
-             * @return true if accquired, false if another accquisition was already done
+             * @return true if acquired, false if another acquisition was already done
              */
             bool Lock(Timeout timeout=0);
 
+            bool TryLock ();
             /**
-             * @brief Check how many shared locks are accquired
+             * @brief Check how many shared locks are acquired
              *
              * @return size_t   Number of threads holding shared locks
              */
-            size_t IsShared();
+            size_t IsShared ();
 
             /**
-             * @brief Check if a exclusive lock has been already accquired
+             * @brief Check if a exclusive lock has been already acquired
              *
              * @return true if yes, otherwise false
              */
-            bool IsLocked();
+            bool IsLocked ();
 
         private:
 
@@ -399,7 +408,7 @@ namespace atomicx
 
             static Thread* GetCyclicalNext();
             
-            static void Scheduller ();
+            static void Scheduler ();
             
             /* ------------------------ */
 
@@ -445,7 +454,8 @@ namespace atomicx
                 if (m_status == Status::timeout) \
                 { \
                     return false; \
-                }
+                }\
+                m_pWaitEndPoint = nullptr;
 
             template<typename T> bool SysWait (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
             {
@@ -643,6 +653,8 @@ namespace atomicx
             Status GetStatus ();
 
             atomicx_time GetNice ();
+
+            static Thread* GetCurrent ();
     };
 
 

@@ -75,6 +75,11 @@ namespace atomicx
 
     volatile uint8_t* m_pEndStack = nullptr;
 
+    Thread* Thread::GetCurrent()
+    {
+        return m_pCurrent;
+    }
+
     // Thread methods 
     bool Thread::AttachThread (Thread& thread)
     {
@@ -129,7 +134,7 @@ namespace atomicx
         return (m_pCurrent->pNext) == nullptr ? (m_pCurrent = m_pBegin) : m_pCurrent->pNext;
     }
 
-    void Thread::Scheduller ()
+    void Thread::Scheduler ()
     {
         size_t nThreadCount = m_nNodeCounter;
         Thread* pThread = m_pCurrent;
@@ -139,6 +144,8 @@ namespace atomicx
         {
             pThread = (pThread->pNext) == nullptr ? (pThread = m_pBegin) : pThread->pNext;
 
+            TRACE (DEBUG, pThread << "." << pThread->GetName() << ": Status: " << GetStatusName(pThread->m_status) << ", Now: " << tm << ", nextEvent: " << (int64_t)(tm - pThread->m_nextEvent));
+            
             if (pThread->m_status == Status::now)
             {
                 pThread->m_nextEvent = tm;
@@ -152,9 +159,10 @@ namespace atomicx
             }
         }
 
-        if (m_pCurrent->m_nextEvent > tm)
+        
+        if (m_pCurrent->m_pWaitEndPoint == nullptr && m_pCurrent->m_nextEvent > tm)
         {
-            TRACE (TRACE, "Status;" << GetStatusName (m_pCurrent->m_status) << ", tm: " << tm << ", next: " << m_pCurrent->m_nextEvent << ", sleep: " << (m_pCurrent->m_nextEvent - tm));
+            TRACE (INFO, "SLEEPING: Status;" << GetStatusName (m_pCurrent->m_status) << ", tm: " << tm << ", next: " << m_pCurrent->m_nextEvent << ", sleep: " << (m_pCurrent->m_nextEvent - tm));
 
             SleepTick (m_pCurrent->m_nextEvent - tm);
         }
@@ -173,7 +181,7 @@ namespace atomicx
             if (m_nNodeCounter == 0) return false;
 
             //m_pCurrent = GetCyclicalNext (); 
-            Scheduller ();
+            Thread::Scheduler ();
 
             TRACE (TRACE, "------------------------------------");
             TRACE (TRACE, m_pCurrent->GetName () << "_" <<(size_t) m_pCurrent << ": St [" << GetStatusName (m_pCurrent->m_status) << "]");
@@ -281,6 +289,12 @@ namespace atomicx
         return m_nice;
     }
 
+    /**
+     * ------------------------------
+     * SMART LOCK IMPLEMENTATION
+     * ------------------------------
+     */
+
     bool Mutex::Lock(Timeout timeout)
     {
         auto pAtomic = Thread::m_pCurrent;
@@ -288,12 +302,21 @@ namespace atomicx
         if(pAtomic == nullptr) return false;
 
         // Get exclusive Mutex
-        while (bExclusiveLock) if  (! pAtomic->SysWait(bExclusiveLock, 1,  1, timeout.GetRemaining())) return false;
+        while (bExclusiveLock) if  (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL,  1, timeout.GetRemaining())) return false;
 
         bExclusiveLock = true;
 
         // Wait all shared locks to be done
-        while (nSharedLockCount) if (! pAtomic->SysWait(nSharedLockCount, 1, 2, timeout.GetRemaining())) return false;
+        while (nSharedLockCount) if (! pAtomic->SysWait(nSharedLockCount, SYSTEM_CHANNEL, 2, timeout.GetRemaining())) return false;
+
+        return true;
+    }
+
+    bool Mutex::TryLock()
+    {
+        if (bExclusiveLock || nSharedLockCount > 0) return false;
+
+        bExclusiveLock = true;
 
         return true;
     }
@@ -309,8 +332,8 @@ namespace atomicx
             bExclusiveLock = false;
 
             // Notify Other locks procedures
-            pAtomic->SysNotify(nSharedLockCount, 1,  2, false);
-            pAtomic->SysNotify(bExclusiveLock, 1, 1, true);
+            pAtomic->SysNotify(nSharedLockCount, SYSTEM_CHANNEL,  2, false);
+            pAtomic->SysNotify(bExclusiveLock, SYSTEM_CHANNEL, 1, true);
         }
     }
 
@@ -321,12 +344,21 @@ namespace atomicx
         if(pAtomic == nullptr) return false;
 
         // Wait for exclusive Mutex
-        while (bExclusiveLock > 0) if (! pAtomic->SysWait(bExclusiveLock, 1, 1, timeout.GetRemaining())) return false;
+        while (bExclusiveLock > 0) if (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL, 1, timeout.GetRemaining())) return false;
 
         nSharedLockCount++;
 
         // Notify Other locks procedures
-        pAtomic->SysNotify (nSharedLockCount, 1, 2, true);
+        pAtomic->SysNotify (nSharedLockCount, SYSTEM_CHANNEL, 2, true);
+
+        return true;
+    }
+
+    bool Mutex::TrySharedLock()
+    {
+        if (bExclusiveLock || nSharedLockCount > 0) return false;
+
+        nSharedLockCount++;
 
         return true;
     }
@@ -341,7 +373,7 @@ namespace atomicx
         {
             nSharedLockCount--;
 
-            pAtomic->SysNotify(nSharedLockCount, 1, 2, true);
+            pAtomic->SysNotify(nSharedLockCount, SYSTEM_CHANNEL, 2, true);
         }
     }
 
