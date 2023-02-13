@@ -45,12 +45,15 @@ typedef uint32_t atomicx_time;
 
 enum class DBGLevel
 {
-    TRACE,
-    DEBUG,
-    INFO,
-    WARNING,
-    ERROR,
     CRITICAL,
+    ERROR,
+    WARNING,
+    KERNEL,
+    WAIT,
+    LOCK,
+    INFO,
+    TRACE,
+    DEBUG
 };
 
 namespace atomicx
@@ -444,9 +447,11 @@ namespace atomicx
             #define _WAIT(msgChannel, msgType, syncType, waitType) \
                 if (tm.GetRemaining () > 0) \
                 { \
+                    TRACE (WAIT, "SYNC NOTIFYING " << #syncType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType << ", ONE ONLY"); \
                     (void) SafeNotify (var, msgChannel, 0, msgType, true, syncType); \
                 } \
                 \
+                TRACE (WAIT, "WAITING " << #waitType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType); \
                 SafeWait (var, msgChannel, msgType); \
                 \
                 Yield (tm.GetRemaining (), waitType); \
@@ -476,6 +481,7 @@ namespace atomicx
             #define _NOTIFY(message, syncType, waitType) \
                 if (tm.GetRemaining () > 0) \
                 { \
+                    TRACE (WAIT, "SYNC WAITING " << #waitType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType); \
                     SafeWait (var, msgChannel, msgType); \
                     \
                     Yield (tm.GetRemaining (), syncType); \
@@ -483,9 +489,10 @@ namespace atomicx
                     if (m_status == Status::timeout) return 0; \
                 } \
                 \
+                TRACE (WAIT, "NOTIFYING " << #syncType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType << ", ONE:" << (one ? "YES" : "NO")); \
                 nNotified = SafeNotify (var, msgChannel, message, msgType, one, waitType); \
                 \
-                Yield (0);
+                Yield (0, Status::now);
 
             template<typename T> size_t SysNotify (T& var, size_t msgChannel, size_t msgType, Timeout tm = 0, bool one = true)
             {
@@ -541,6 +548,10 @@ namespace atomicx
                         {
                             if (th.m_msgType == msgType || th.m_msgType == 0)
                             {
+                                TRACE (WAIT, ">>> FOUND, NOTIFYING, TH: " << &th << "." << th.GetName() \
+                                 << ": var: " << &var << ", ch: " << msgChannel << ", msgType: " \
+                                 << msgType << ", msg: " << message << ", one: " << (one ? "YES" : "NO"));
+
                                 th.m_msgChannel = msgChannel;
                                 th.m_msgType = msgType;
                                 th.m_message = message;

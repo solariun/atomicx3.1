@@ -143,26 +143,27 @@ namespace atomicx
         while (nThreadCount--)
         {
             pThread = (pThread->pNext) == nullptr ? (pThread = m_pBegin) : pThread->pNext;
-
-            TRACE (DEBUG, pThread << "." << pThread->GetName() << ": Status: " << GetStatusName(pThread->m_status) << ", Now: " << tm << ", nextEvent: " << (int64_t)(tm - pThread->m_nextEvent));
             
-            if (pThread->m_status == Status::now)
-            {
-                pThread->m_nextEvent = tm;
-                m_pCurrent = pThread;
-                break;
-            }
+            TRACE (KERNEL, pThread << "." << pThread->GetName() << ": Status: " << GetStatusName(pThread->m_status) << ", Now: " << tm << ", nextEvent: " << (int32_t)(pThread->m_nextEvent - tm) << ":" << pThread->m_nextEvent);
+            
+            // if (pThread->m_status == Status::now)
+            // {
+            //     pThread->m_nextEvent = tm;
+            //     m_pCurrent = pThread;
+            //     break;
+            // }
             
             if (pThread->m_nextEvent < m_pCurrent->m_nextEvent)
             {
                 m_pCurrent = pThread;
             }
         }
-
         
-        if (m_pCurrent->m_pWaitEndPoint == nullptr && m_pCurrent->m_nextEvent > tm)
+        TRACE (KERNEL, m_pCurrent << "." << m_pCurrent->GetName() << ": LEAVING Status: " << GetStatusName(m_pCurrent->m_status) << ", Now: " << tm << ", nextEvent: " << (int32_t)(m_pCurrent->m_nextEvent - tm));
+
+        if (m_pCurrent->m_nextEvent > tm)
         {
-            TRACE (INFO, "SLEEPING: Status;" << GetStatusName (m_pCurrent->m_status) << ", tm: " << tm << ", next: " << m_pCurrent->m_nextEvent << ", sleep: " << (m_pCurrent->m_nextEvent - tm));
+            TRACE (KERNEL, "SLEEPING: " << pThread << "." << pThread->GetName() << ", Status;" << GetStatusName (m_pCurrent->m_status) << ", tm: " << tm << ", next: " << m_pCurrent->m_nextEvent << ", sleep: " << (int32_t) (m_pCurrent->m_nextEvent - tm));
 
             SleepTick (m_pCurrent->m_nextEvent - tm);
         }
@@ -183,9 +184,9 @@ namespace atomicx
             //m_pCurrent = GetCyclicalNext (); 
             Thread::Scheduler ();
 
-            TRACE (TRACE, "------------------------------------");
-            TRACE (TRACE, m_pCurrent->GetName () << "_" <<(size_t) m_pCurrent << ": St [" << GetStatusName (m_pCurrent->m_status) << "]");
-            TRACE (TRACE, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
+            TRACE (KERNEL, "------------------------------------");
+            TRACE (KERNEL, m_pCurrent->GetName () << "_" <<(size_t) m_pCurrent << ": St [" << GetStatusName (m_pCurrent->m_status) << "]");
+            TRACE (KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
 
             if (m_pCurrent->m_status ==  Status::starting)
             {
@@ -218,7 +219,7 @@ namespace atomicx
         m_pCurrent->m_pEndStack = GetStackPoint (); 
         m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack + sizeof (size_t);
 
-        TRACE (TRACE, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
+        TRACE (KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
 
         if (st == Status::now)
         {
@@ -237,7 +238,7 @@ namespace atomicx
             m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack;
             memcpy ((void*) m_pCurrent->m_pEndStack, (const void*) &m_pCurrent->m_stack, m_pCurrent->nStackSize);
 
-            NOTRACE(TRACE, (size_t) m_pCurrent << ": RETURNED from Join.");
+            NOTRACE(KERNEL, (size_t) m_pCurrent << ": RETURNED from Join.");
 
             return true;
         } 
@@ -301,14 +302,22 @@ namespace atomicx
 
         if(pAtomic == nullptr) return false;
 
+        TRACE (LOCK, "CHECKING bExclusiveLock: " << bExclusiveLock);
+        
         // Get exclusive Mutex
         while (bExclusiveLock) if  (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL,  1, timeout.GetRemaining())) return false;
 
+        TRACE (LOCK, "Acquiring, bExclusiveLock: " << bExclusiveLock);
+        
         bExclusiveLock = true;
 
+        TRACE (LOCK, "Exclusive lock, Acquired, Waiting all reading to be done,  nSharedLockCount: " << nSharedLockCount);
+        
         // Wait all shared locks to be done
         while (nSharedLockCount) if (! pAtomic->SysWait(nSharedLockCount, SYSTEM_CHANNEL, 2, timeout.GetRemaining())) return false;
 
+        TRACE (LOCK, "All reading done.., Exlucive lock acquired.  nSharedLockCount: " << nSharedLockCount);
+        
         return true;
     }
 
@@ -335,6 +344,8 @@ namespace atomicx
             pAtomic->SysNotify(nSharedLockCount, SYSTEM_CHANNEL,  2, false);
             pAtomic->SysNotify(bExclusiveLock, SYSTEM_CHANNEL, 1, true);
         }
+        
+        TRACE (LOCK, "Unlocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
     }
 
     bool Mutex::SharedLock(Timeout timeout)
@@ -343,6 +354,8 @@ namespace atomicx
 
         if(pAtomic == nullptr) return false;
 
+        TRACE (LOCK, "Wait Exclusive lock done, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
+        
         // Wait for exclusive Mutex
         while (bExclusiveLock > 0) if (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL, 1, timeout.GetRemaining())) return false;
 
@@ -350,6 +363,8 @@ namespace atomicx
 
         // Notify Other locks procedures
         pAtomic->SysNotify (nSharedLockCount, SYSTEM_CHANNEL, 2, true);
+
+        TRACE (LOCK, "SharedLocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
 
         return true;
     }
@@ -375,6 +390,8 @@ namespace atomicx
 
             pAtomic->SysNotify(nSharedLockCount, SYSTEM_CHANNEL, 2, true);
         }
+        
+        TRACE (LOCK, "SharedUnlocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
     }
 
     size_t Mutex::IsShared()

@@ -36,7 +36,6 @@ class Reader : public atomicx::Thread
         Serial.flush ();
     }
 
-
     virtual void run () final 
     {
         Serial.print ((size_t) this);
@@ -52,7 +51,7 @@ class Reader : public atomicx::Thread
                 Serial.println (mutex.nSharedLockCount);
                 Serial.flush ();
 
-            if (mutex.SharedLock (10000))
+            if (mutex.SharedLock (1000))
             {
                 Serial.print ((size_t) this);
                 Serial.print (F(": Read value: "));
@@ -145,13 +144,13 @@ class Writer : public atomicx::Thread
     }
 };
 
-Reader r1;
-//Reader r2;
-//Reader r3;
-//Reader r4;
+// Reader r1;
+// Reader r2;
+// Reader r3;
+// Reader r4;
 
 Writer w1;
-//Writer w2;
+Writer w2;
 
 void setup()
 {
@@ -165,7 +164,7 @@ void setup()
 
     Serial.println ("-------------------------------------");
 
-    for (auto& th : r1)
+    for (auto& th : w1)
     {
         Serial.print (__func__);
         Serial.print (th.GetName ());
