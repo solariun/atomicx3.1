@@ -60,12 +60,14 @@ class Reader : public atomicx::Thread
 
         while (Yield ())
         {
-            TRACE (INFO, "bExclusiveLock: [" << mutex.bExclusiveLock << "], nSharedLockCount: [" << mutex.nSharedLockCount << "]");
+            TRACE (INFO, "bExclusiveLock: [" << mutex.GetExclusiveLockStatus () << "], nSharedLockCount: [" << mutex.GetSharedLockCount () << "]");
 
             if (mutex.SharedLock (8000))
             {
                 TRACE (INFO, "Read value: [" << nValue <<  "], Stack: [" << GetStackSize () << "/" << GetMaxStackSize() << "]");
                 
+                Yield ();
+
                 mutex.SharedUnlock ();
             }
         }
@@ -100,11 +102,13 @@ class Writer : public atomicx::Thread
     {
         TRACE (INFO, "Starting thread.");
 
+        SetPriority (255);
+
         while (true)
         {
             TRACE (INFO, "Acquiring exclusive lock.");
 
-            TRACE (INFO, "bExclusiveLock: [" << mutex.bExclusiveLock << "], nSharedLockCount: [" << mutex.nSharedLockCount << "]");
+            TRACE (INFO, "bExclusiveLock: [" << mutex.GetExclusiveLockStatus () << "], nSharedLockCount: [" << mutex.GetSharedLockCount () << "]");
 
             if (mutex.Lock (10000))
             {
@@ -130,7 +134,7 @@ class Writer : public atomicx::Thread
 };
 
 
-int g_nice = 500;
+int g_nice = 100;
 
 Reader r1 (g_nice);
 Reader r2 (g_nice);

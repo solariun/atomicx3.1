@@ -319,8 +319,11 @@ namespace atomicx
          */
         bool IsLocked ();
 
+        size_t GetSharedLockCount ();
+        bool GetExclusiveLockStatus ();
+
     protected:
-    public:
+    private:
         size_t nSharedLockCount=0;
         bool bExclusiveLock=false;
     };
@@ -376,7 +379,6 @@ namespace atomicx
              * @return true if yes, otherwise false
              */
             bool IsLocked ();
-
         private:
 
         Mutex& m_lock;
@@ -423,6 +425,7 @@ namespace atomicx
             jmp_buf m_context = {};
 
             volatile uint8_t* m_pEndStack = nullptr;
+            uint8_t m_priority = 0;
 
             atomicx_time m_nice = 0;
             atomicx_time m_nextEvent = 0;
@@ -456,10 +459,7 @@ namespace atomicx
                 \
                 Yield (tm.GetRemaining (), waitType); \
                 \
-                if (m_status == Status::timeout) \
-                { \
-                    return false; \
-                }\
+                if (tm.IsTimedout ()) { m_status = Status::timeout; return false; }\
                 m_pWaitEndPoint = nullptr;
 
             template<typename T> bool SysWait (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
@@ -486,7 +486,7 @@ namespace atomicx
                     \
                     Yield (tm.GetRemaining (), syncType); \
                     \
-                    if (m_status == Status::timeout) return 0; \
+                    if (tm.IsTimedout ()) { m_status = Status::timeout; return 0; }\
                 } \
                 \
                 TRACE (WAIT, "NOTIFYING " << #syncType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType << ", ONE:" << (one ? "YES" : "NO")); \
@@ -519,6 +519,8 @@ namespace atomicx
 
             static bool DetachThread (Thread& thread);
 
+            void SetPriority (uint8_t value);
+            
             template<size_t N>Thread (atomicx_time nNice, volatile size_t (&stack)[N]) : 
                 m_nice (nNice), 
                 m_nMaxStackSize (N * sizeof (size_t)),
@@ -666,8 +668,9 @@ namespace atomicx
             atomicx_time GetNice ();
 
             static Thread* GetCurrent ();
-    };
 
+            atomicx_time GetNextEvent ();
+    };
 
 }
 

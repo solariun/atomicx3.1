@@ -128,7 +128,6 @@ namespace atomicx
         return true;
     }
 
-   
     Thread* Thread::GetCyclicalNext()
     {
         return (m_pCurrent->pNext) == nullptr ? (m_pCurrent = m_pBegin) : m_pCurrent->pNext;
@@ -145,20 +144,13 @@ namespace atomicx
             pThread = (pThread->pNext) == nullptr ? (pThread = m_pBegin) : pThread->pNext;
             
             TRACE (KERNEL, pThread << "." << pThread->GetName() << ": Status: " << GetStatusName(pThread->m_status) << ", Now: " << tm << ", nextEvent: " << (int32_t)(pThread->m_nextEvent - tm) << ":" << pThread->m_nextEvent);
-            
-            // if (pThread->m_status == Status::now)
-            // {
-            //     pThread->m_nextEvent = tm;
-            //     m_pCurrent = pThread;
-            //     break;
-            // }
-            
-            if (pThread->m_nextEvent < m_pCurrent->m_nextEvent)
+         
+            if (m_pCurrent->m_nextEvent >= pThread->m_nextEvent)
             {
-                m_pCurrent = pThread;
+                m_pCurrent = pThread->m_nextEvent == m_pCurrent->m_nextEvent ? pThread->m_priority > m_pCurrent->m_priority ? pThread : m_pCurrent : pThread;
             }
         }
-        
+
         TRACE (KERNEL, m_pCurrent << "." << m_pCurrent->GetName() << ": LEAVING Status: " << GetStatusName(m_pCurrent->m_status) << ", Now: " << tm << ", nextEvent: " << (int32_t)(m_pCurrent->m_nextEvent - tm));
 
         if (m_pCurrent->m_nextEvent > tm)
@@ -167,6 +159,11 @@ namespace atomicx
 
             SleepTick (m_pCurrent->m_nextEvent - tm);
         }
+    }
+
+    void Thread::SetPriority (uint8_t value)
+    {
+        m_priority = value;
     }
 
     bool Thread::Join ()
@@ -199,12 +196,7 @@ namespace atomicx
                 longjmp (m_joinContext, 1);
             }
             else
-            {
-                if (m_pCurrent->m_status ==  Status::wait || m_pCurrent->m_status ==  Status::syncWait)
-                {
-                    m_pCurrent->m_status = Status::timeout;
-                }
-            
+            {            
                 longjmp (m_pCurrent->m_context, 1);
             }
         }
@@ -223,7 +215,7 @@ namespace atomicx
 
         if (st == Status::now)
         {
-            tm = 0;
+            tm =  GetTick ();
         }
         else
         {
@@ -246,6 +238,8 @@ namespace atomicx
         memcpy ((void*) &m_pCurrent->m_stack, (const void*) m_pCurrent->m_pEndStack, m_pCurrent->nStackSize);
 
         longjmp (m_joinContext, 1);
+
+        m_pCurrent->m_status = Status::running;
 
         return false;
     }
@@ -290,11 +284,26 @@ namespace atomicx
         return m_nice;
     }
 
+    atomicx_time Thread::GetNextEvent ()
+    {
+        return m_nextEvent;
+    }
+
     /**
      * ------------------------------
      * SMART LOCK IMPLEMENTATION
      * ------------------------------
      */
+
+    size_t Mutex::GetSharedLockCount ()
+    {
+        return nSharedLockCount;
+    }
+
+    bool Mutex::GetExclusiveLockStatus ()
+    {
+        return bExclusiveLock;
+    }
 
     bool Mutex::Lock(Timeout timeout)
     {
@@ -357,7 +366,7 @@ namespace atomicx
         TRACE (LOCK, "Wait Exclusive lock done, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
         
         // Wait for exclusive Mutex
-        while (bExclusiveLock > 0) if (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL, 1, timeout.GetRemaining())) return false;
+        while (bExclusiveLock > 0) if (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL, 1, timeout.GetRemaining())) { return false; }
 
         nSharedLockCount++;
 
