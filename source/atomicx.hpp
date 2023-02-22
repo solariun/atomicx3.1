@@ -450,8 +450,8 @@ namespace atomicx
             #define _WAIT(msgChannel, msgType, syncType, waitType) \
                 if (tm.GetRemaining () > 0) \
                 { \
-                    TRACE (WAIT, "SYNC NOTIFYING " << #syncType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType << ", ONE ONLY"); \
-                    (void) SafeNotify (var, msgChannel, 0, msgType, true, syncType); \
+                    auto notified = SafeNotify (var, msgChannel, 0, msgType, true, syncType); \
+                    TRACE (WAIT, "SYNC NOTIFYING " << #syncType << ", Notified: " << notified << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType << ", ONE ONLY"); \
                 } \
                 \
                 TRACE (WAIT, "WAITING " << #waitType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType); \
@@ -459,7 +459,7 @@ namespace atomicx
                 \
                 Yield (tm.GetRemaining (), waitType); \
                 \
-                if (tm.IsTimedout ()) { m_status = Status::timeout; return false; }\
+                if (tm.IsTimedout ()) { m_status = Status::timeout; return false; } else Yield(0);\
                 m_pWaitEndPoint = nullptr;
 
             template<typename T> bool SysWait (T& var, size_t msgChannel, size_t& message, size_t msgType, Timeout tm = 0)
@@ -489,10 +489,10 @@ namespace atomicx
                     if (tm.IsTimedout ()) { m_status = Status::timeout; return 0; }\
                 } \
                 \
-                TRACE (WAIT, "NOTIFYING " << #syncType << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType << ", ONE:" << (one ? "YES" : "NO")); \
+                TRACE (WAIT, "NOTIFYING " << #syncType << ", Remaining: " << tm.GetRemaining () << ", var: " << &var << ", Ch: " << msgChannel << ", Tp: " << msgType << ", ONE:" << (one ? "YES" : "NO")); \
                 nNotified = SafeNotify (var, msgChannel, message, msgType, one, waitType); \
                 \
-                Yield (0, Status::now);
+                Yield (0);
 
             template<typename T> size_t SysNotify (T& var, size_t msgChannel, size_t msgType, Timeout tm = 0, bool one = true)
             {

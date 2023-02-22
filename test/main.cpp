@@ -58,7 +58,7 @@ class Reader : public atomicx::Thread
     {
         TRACE (INFO, "Starting thread.");
 
-        while (Yield ())
+        while (true)
         {
             TRACE (INFO, "bExclusiveLock: [" << mutex.GetExclusiveLockStatus () << "], nSharedLockCount: [" << mutex.GetSharedLockCount () << "]");
 
@@ -121,7 +121,7 @@ class Writer : public atomicx::Thread
                 mutex.Unlock ();
             }
 
-            Yield ();
+            //Yield ();
         }
 
         TRACE (INFO, "Ending thread.");

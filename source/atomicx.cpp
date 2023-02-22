@@ -211,8 +211,6 @@ namespace atomicx
         m_pCurrent->m_pEndStack = GetStackPoint (); 
         m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack + sizeof (size_t);
 
-        TRACE (KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
-
         if (st == Status::now)
         {
             tm =  GetTick ();
@@ -224,6 +222,10 @@ namespace atomicx
         
         m_pCurrent->m_status = st;
         m_pCurrent->m_nextEvent = tm;
+
+        TRACE (KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
+
+        TRACE (KERNEL, "tm: " << tm << ", status: " << GetStatusName (st) << "Nice: " << m_pCurrent->m_nice << ", Next event: " << m_pCurrent->m_nextEvent << "/" << (atomicx_time)(m_pCurrent->m_nextEvent - Thread::GetTick ()));
 
         if (setjmp (m_pCurrent->m_context) != 0)
         {
@@ -354,6 +356,8 @@ namespace atomicx
             pAtomic->SysNotify(bExclusiveLock, SYSTEM_CHANNEL, 1, true);
         }
         
+        //pAtomic->Yield (0);
+
         TRACE (LOCK, "Unlocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
     }
 
@@ -400,6 +404,8 @@ namespace atomicx
             pAtomic->SysNotify(nSharedLockCount, SYSTEM_CHANNEL, 2, true);
         }
         
+        // pAtomic->Yield (0);
+
         TRACE (LOCK, "SharedUnlocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
     }
 
