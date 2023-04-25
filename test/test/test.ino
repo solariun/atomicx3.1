@@ -21,9 +21,9 @@ void yield_in ()
 }
 
 th th1;
-th th2;
-th th3;
-th th4;
+// th th2;
+// th th3;
+// th th4;
 
 void setup()
 {

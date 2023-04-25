@@ -41,23 +41,28 @@ class th : public atomicx::Thread
 
         while (true)
         {
-            nNotified = Notify (notify, 1, (size_t) this, 1, GetNice (), true);
+            nNotified = Notify (notify, 1, 1, (size_t) this, 1000, atomicx::Notify::one);
 
             //Yield ();
 
             nValue++;
 
             Serial.print ((size_t) this);
+            Serial.print (" ");
+            Serial.print (atomicx::GetStatusName (GetStatus ()));
+            Serial.print (": ");
 
             if (GetStatus() == atomicx::Status::timeout)
             {
-                Serial.print (F(":TEST Timed out notifying"));
+                Serial.print (F(":TEST Timed out notifying :"));
+                Serial.println (GetLate());
             }
             else
             {
                 Serial.print (F(":TEST notified: "));
                 Serial.print (nNotified);
-                Serial.print ("      \r");
+                Serial.print (", Late:");
+                Serial.println (GetLate());
             }
 
             Serial.flush ();
@@ -71,7 +76,7 @@ class th : public atomicx::Thread
             // Serial.println (GetThreadCount ());
             // Serial.flush ();
 
-            if (nValue && nValue % 1000 == 0) 
+            if (nValue && nValue % 10 == 0) 
             {
                 if (!th)
                 {

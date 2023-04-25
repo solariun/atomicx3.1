@@ -42,7 +42,7 @@ class tth : atomicx::Thread
             Serial.println (GetStackSize ());
             Serial.flush ();
 
-            if (Wait (notify, 1, message, 1, 500) == false)
+            if (Wait (notify, 1, 1, message, 100) == false)
             {
                 Serial.print ((size_t) this);
                 Serial.println (F(": TTH ERROR NOT NOTIFIED."));

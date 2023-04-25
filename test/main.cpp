@@ -32,8 +32,6 @@ void atomicx::Thread::SleepTick(atomicx_time nSleep)
     usleep ((useconds_t)nSleep * 1000);
 }
 
-atomicx::Mutex mutex;
-
 uint32_t nValue = 0;
 
 class Reader : public atomicx::Thread
@@ -57,19 +55,19 @@ class Reader : public atomicx::Thread
     virtual void run () final 
     {
         TRACE (INFO, "Starting thread.");
-
-        while (Yield ())
+        size_t nRetValue = 0;
+        
+        while (true)
         {
-            TRACE (INFO, "bExclusiveLock: [" << mutex.GetExclusiveLockStatus () << "], nSharedLockCount: [" << mutex.GetSharedLockCount () << "]");
-
-            if (mutex.SharedLock (8000))
+            if (Wait(nValue, 1, nRetValue, 2000))
+                TRACE (INFO, "Read value: [" << nValue <<  "], RetValue: [" << nRetValue << "], Stack: [" << GetStackSize () << "/" << GetMaxStackSize() << "]");
+            else
             {
-                TRACE (INFO, "Read value: [" << nValue <<  "], Stack: [" << GetStackSize () << "/" << GetMaxStackSize() << "]");
-                
-                Yield ();
-
-                mutex.SharedUnlock ();
+                TRACE(CRITICAL,"TIMEOUT");
+                exit(0);
             }
+            
+            //Yield (0);
         }
 
         TRACE (INFO, "Ending thread.");
@@ -102,26 +100,22 @@ class Writer : public atomicx::Thread
     {
         TRACE (INFO, "Starting thread.");
 
-        SetPriority (255);
+        size_t nLocalValue = 111;
+        
+        //SetPriority (254);
 
         while (true)
         {
-            TRACE (INFO, "Acquiring exclusive lock.");
-
-            TRACE (INFO, "bExclusiveLock: [" << mutex.GetExclusiveLockStatus () << "], nSharedLockCount: [" << mutex.GetSharedLockCount () << "]");
-
-            if (mutex.Lock (10000))
             {
-                nValue++;
+                nValue++; nLocalValue++;
 
-                TRACE (INFO, "Written value: [" << nValue << "], Stack: [" << GetStackSize () << "/" << GetMaxStackSize() << "]");
+                //TRACE (INFO, "Written value: [" << nValue << "], LocalValue: [" << nLocalValue << "], Stack: [" << GetStackSize () << "/" << GetMaxStackSize() << "]");
+                
+                Notify(nValue, {.type = 1, .message = nLocalValue}, 2000, atomicx::Notify::one);
+                
+                //Yield (0);
 
-                Yield ();
-
-                mutex.Unlock ();
             }
-
-            Yield ();
         }
 
         TRACE (INFO, "Ending thread.");
@@ -134,15 +128,16 @@ class Writer : public atomicx::Thread
 };
 
 
-int g_nice = 100;
+int g_nice = 10;
 
 Reader r1 (g_nice);
-Reader r2 (g_nice);
-// Reader r3 (g_nice);
-// Reader r4 (g_nice);
 
 Writer w1(g_nice);
 //Writer w2(g_nice);
+
+// Reader r2 (g_nice);
+// Reader r3 (g_nice);
+// Reader r4 (g_nice);
 
 int main ()
 {

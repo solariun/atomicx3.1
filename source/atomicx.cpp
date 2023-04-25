@@ -1,473 +1,356 @@
 
-#include <stdio.h>
-#include <unistd.h>
-#include <stdint.h>
-#include <stdlib.h>
 #include <setjmp.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "atomicx.hpp"
 
+#define caseStatus(st) \
+	case st:           \
+		name = #st;    \
+		break;
+
 namespace atomicx
 {
-    /*
+	const char *GetStatusName(Status st)
+	{
+		const char *name = "undefined";
+
+		switch (st)
+		{
+			caseStatus(Status::none);
+			caseStatus(Status::starting);
+
+			caseStatus(Status::wait);
+			caseStatus(Status::syncWait);
+			caseStatus(Status::ctxSwitch);
+
+			caseStatus(Status::sysWait);
+			caseStatus(Status::syncSysWait);
+
+			caseStatus(Status::sleep);
+			caseStatus(Status::timeout);
+			caseStatus(Status::halted);
+			caseStatus(Status::paused);
+
+			caseStatus(Status::locked);
+
+			caseStatus(Status::running);
+			caseStatus(Status::now);
+		}
+
+		return name;
+	}
+
+	/*
      * Tiemout functions
-    */
-
-    /*
-    * timeout methods implementations
-    */
-
-    Timeout::Timeout () : m_timeoutValue (0)
-    {
-        Set (0);
-    }
-
-    Timeout::Timeout (atomicx_time nTimeoutValue) : m_timeoutValue (0)
-    {
-        Set (nTimeoutValue);
-    }
-
-    void Timeout::Set(atomicx_time nTimeoutValue)
-    {
-        m_timeoutValue = nTimeoutValue ? nTimeoutValue + Thread::GetTick () : 0;
-    }
-
-    bool Timeout::IsTimedout()
-    {
-        return (m_timeoutValue == 0 || Thread::GetTick () < m_timeoutValue) ? false : true;
-    }
-
-    atomicx_time Timeout::GetRemaining()
-    {
-        auto nNow = Thread::GetTick ();
-
-        return (nNow < m_timeoutValue) ? m_timeoutValue - nNow : 0;
-    }
-
-    atomicx_time Timeout::GetDurationSince(atomicx_time startTime)
-    {
-        return startTime - GetRemaining ();
-    }
-
-    /*
-        THREAD 
-    */
-
-   // Thread kernel static initializations
-
-    Thread* Thread::m_pBegin = nullptr;
-    Thread* Thread::m_pEnd = nullptr;
-    Thread* Thread::m_pCurrent = nullptr;
-
-    size_t Thread::m_nNodeCounter = 0;
-
-    volatile uint8_t* Thread::m_pStartStack = nullptr;
-
-    jmp_buf Thread::m_joinContext = {};
-    
-    /* ------------------------ */
-
-    Status m_status = Status::starting;
-
-    // Thread context register buffer
-    jmp_buf m_context = {};
-
-    volatile uint8_t* m_pEndStack = nullptr;
-
-    Thread* Thread::GetCurrent()
-    {
-        return m_pCurrent;
-    }
-
-    // Thread methods 
-    bool Thread::AttachThread (Thread& thread)
-    {
-        if (m_pBegin == nullptr)
-        {
-            m_pBegin = &thread;
-            m_pEnd = m_pBegin;
-        }
-        else
-        {
-            thread.pPrev = m_pEnd;
-            m_pEnd->pNext = &thread;
-            m_pEnd = &thread;
-        }
-
-        m_nNodeCounter++;
-
-        return true;
-    }
-
-    bool Thread::DetachThread (Thread& thread)
-    {
-        if (thread.pNext == nullptr && thread.pPrev == nullptr)
-        {
-            m_pBegin = nullptr;
-            thread.pPrev = nullptr;
-        }
-        else if (thread.pPrev == nullptr)
-        {
-            thread.pNext->pPrev = nullptr;
-            m_pBegin = thread.pNext;
-        }
-        else if (thread.pNext == nullptr)
-        {
-            thread.pPrev->pNext = nullptr;
-            m_pEnd = thread.pPrev;
-        }
-        else
-        {
-            thread.pPrev->pNext = thread.pNext;
-            thread.pNext->pPrev = thread.pPrev;
-        }
-
-        m_nNodeCounter--;
-
-        return true;
-    }
-
-    Thread* Thread::GetCyclicalNext()
-    {
-        return (m_pCurrent->pNext) == nullptr ? (m_pCurrent = m_pBegin) : m_pCurrent->pNext;
-    }
-
-    void Thread::Scheduler ()
-    {
-        size_t nThreadCount = m_nNodeCounter;
-        Thread* pThread = m_pCurrent;
-        atomicx_time tm = GetTick ();
-
-        while (nThreadCount--)
-        {
-            pThread = (pThread->pNext) == nullptr ? (pThread = m_pBegin) : pThread->pNext;
-            
-            TRACE (KERNEL, pThread << "." << pThread->GetName() << ": Status: " << GetStatusName(pThread->m_status) << ", Now: " << tm << ", nextEvent: " << (int32_t)(pThread->m_nextEvent - tm) << ":" << pThread->m_nextEvent);
-         
-            if (m_pCurrent->m_nextEvent >= pThread->m_nextEvent)
-            {
-                m_pCurrent = pThread->m_nextEvent == m_pCurrent->m_nextEvent ? pThread->m_priority > m_pCurrent->m_priority ? pThread : m_pCurrent : pThread;
-            }
-        }
-
-        TRACE (KERNEL, m_pCurrent << "." << m_pCurrent->GetName() << ": LEAVING Status: " << GetStatusName(m_pCurrent->m_status) << ", Now: " << tm << ", nextEvent: " << (int32_t)(m_pCurrent->m_nextEvent - tm));
-
-        if (m_pCurrent->m_nextEvent > tm)
-        {
-            TRACE (KERNEL, "SLEEPING: " << pThread << "." << pThread->GetName() << ", Status;" << GetStatusName (m_pCurrent->m_status) << ", tm: " << tm << ", next: " << m_pCurrent->m_nextEvent << ", sleep: " << (int32_t) (m_pCurrent->m_nextEvent - tm));
-
-            SleepTick (m_pCurrent->m_nextEvent - tm);
-        }
-    }
-
-    void Thread::SetPriority (uint8_t value)
-    {
-        m_priority = value;
-    }
-
-    bool Thread::Join ()
-    {    
-        m_pCurrent = m_pEnd;
-
-        if (m_pCurrent != nullptr )
-        {
-            m_pStartStack = GetStackPoint (); //&nStackPoint;
-
-            setjmp (m_joinContext);
-
-            if (m_nNodeCounter == 0) return false;
-
-            //m_pCurrent = GetCyclicalNext (); 
-            Thread::Scheduler ();
-
-            TRACE (KERNEL, "------------------------------------");
-            TRACE (KERNEL, m_pCurrent->GetName () << "_" <<(size_t) m_pCurrent << ": St [" << GetStatusName (m_pCurrent->m_status) << "]");
-            TRACE (KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
-
-            if (m_pCurrent->m_status ==  Status::starting)
-            {
-                m_pCurrent->m_status = Status::running;
-
-                m_pCurrent->run ();
-    
-                m_pCurrent->m_status = Status::starting;
-
-                longjmp (m_joinContext, 1);
-            }
-            else
-            {            
-                longjmp (m_pCurrent->m_context, 1);
-            }
-        }
-
-        TRACE (TRACE, "NO THREAD TO RUN.... #" << m_nNodeCounter);
-
-        return false;
-    }
-
-    bool Thread::Yield (atomicx_time tm, Status st)
-    {
-        m_pCurrent->m_pEndStack = GetStackPoint (); 
-        m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack + sizeof (size_t);
-
-        TRACE (KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize << ", Occupied: " << (100*m_pCurrent->nStackSize)/(m_pCurrent->m_nMaxStackSize) << "%");
-
-        if (st == Status::now)
-        {
-            tm =  GetTick ();
-        }
-        else
-        {
-            tm = GetTick () + (tm ? tm : m_pCurrent->m_nice);
-        }
-        
-        m_pCurrent->m_status = st;
-        m_pCurrent->m_nextEvent = tm;
-
-        if (setjmp (m_pCurrent->m_context) != 0)
-        {
-            m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack;
-            memcpy ((void*) m_pCurrent->m_pEndStack, (const void*) &m_pCurrent->m_stack, m_pCurrent->nStackSize);
-
-            NOTRACE(KERNEL, (size_t) m_pCurrent << ": RETURNED from Join.");
-
-            return true;
-        } 
-
-        memcpy ((void*) &m_pCurrent->m_stack, (const void*) m_pCurrent->m_pEndStack, m_pCurrent->nStackSize);
-
-        longjmp (m_joinContext, 1);
-
-        m_pCurrent->m_status = Status::running;
-
-        return false;
-    }
-
-    size_t Thread::GetThreadCount ()
-    {
-        return m_nNodeCounter;
-    }
-
-    Thread::~Thread ()
-    {
-        DetachThread (*this);
-    }
-
-    size_t Thread::GetStackSize ()
-    {
-        return nStackSize;
-    }
-
-    size_t Thread::GetMaxStackSize ()
-    {
-        return m_nMaxStackSize;
-    }
-
-    Iterator<Thread> Thread::begin()
-    {
-        return Iterator<Thread>(m_pBegin);
-    } 
-
-    Iterator<Thread> Thread::end()
-    {
-        return Iterator<Thread>(nullptr);
-    }
-
-    Status Thread::GetStatus ()
-    {
-        return m_status;
-    }
-
-    atomicx_time Thread::GetNice ()
-    {
-        return m_nice;
-    }
-
-    atomicx_time Thread::GetNextEvent ()
-    {
-        return m_nextEvent;
-    }
-
-    /**
-     * ------------------------------
-     * SMART LOCK IMPLEMENTATION
-     * ------------------------------
      */
 
-    size_t Mutex::GetSharedLockCount ()
+	/*
+     * timeout methods implementations
+     */
+
+	Timeout::Timeout()
+	    : m_timeoutValue(0)
+	{
+		Set(0);
+	}
+
+    bool Timeout::CanTimeout()
     {
-        return nSharedLockCount;
+        return (m_timeoutValue == 0 ? false : true);
     }
 
-    bool Mutex::GetExclusiveLockStatus ()
-    {
-        return bExclusiveLock;
-    }
+	Timeout::Timeout(atomicx_time nTimeoutValue)
+	    : m_timeoutValue(nTimeoutValue ? nTimeoutValue + Thread::GetTick() : 0)
+	{
+	}
 
-    bool Mutex::Lock(Timeout timeout)
-    {
-        auto pAtomic = Thread::m_pCurrent;
+	void Timeout::Set(atomicx_time nTimeoutValue)
+	{
+		m_timeoutValue = nTimeoutValue ? nTimeoutValue + Thread::GetTick() : 0;
+		TRACE(DEBUG, "nTimeoutValue: " << nTimeoutValue << ", m_timeoutValue: " << m_timeoutValue);
+	}
 
-        if(pAtomic == nullptr) return false;
+	bool Timeout::IsTimedout()
+	{
+		return (m_timeoutValue == 0 || m_timeoutValue > Thread::GetTick()) ? false : true;
+	}
 
-        TRACE (LOCK, "CHECKING bExclusiveLock: " << bExclusiveLock);
+	atomicx_time Timeout::GetRemaining()
+	{
+		auto nNow = Thread::GetTick();
+
+		return (m_timeoutValue && nNow < m_timeoutValue) ? m_timeoutValue - Thread::GetTick() : 0;
+	}
+
+	atomicx_time Timeout::GetDurationSince(atomicx_time startTime)
+	{
+		return startTime - GetRemaining();
+	}
+
+	/*
+        THREAD
+    */
+
+	// Thread kernel static initializations
+
+	Thread *Thread::m_pBegin   = nullptr;
+	Thread *Thread::m_pEnd     = nullptr;
+	Thread *Thread::m_pCurrent = nullptr;
+
+	size_t Thread::m_nNodeCounter = 0;
+
+	volatile uint8_t *Thread::m_pStartStack = nullptr;
+
+	jmp_buf Thread::m_joinContext = {};
+
+	/* ------------------------ */
+
+	Status m_status = Status::starting;
+
+	// Thread context register buffer
+	jmp_buf m_context = {};
+
+	volatile uint8_t *m_pEndStack = nullptr;
+
+	Thread *Thread::GetCurrent()
+	{
+		return m_pCurrent;
+	}
+
+	// Thread methods
+	bool Thread::AttachThread(Thread &thread)
+	{
+		if (m_pBegin == nullptr)
+		{
+			m_pBegin = &thread;
+			m_pEnd   = m_pBegin;
+		}
+		else
+		{
+			thread.pPrev  = m_pEnd;
+			m_pEnd->pNext = &thread;
+			m_pEnd        = &thread;
+		}
+
+		m_nNodeCounter++;
+
+		return true;
+	}
+
+	bool Thread::DetachThread(Thread &thread)
+	{
+		if (thread.pNext == nullptr && thread.pPrev == nullptr)
+		{
+			m_pBegin     = nullptr;
+			thread.pPrev = nullptr;
+		}
+		else if (thread.pPrev == nullptr)
+		{
+			thread.pNext->pPrev = nullptr;
+			m_pBegin            = thread.pNext;
+		}
+		else if (thread.pNext == nullptr)
+		{
+			thread.pPrev->pNext = nullptr;
+			m_pEnd              = thread.pPrev;
+		}
+		else
+		{
+			thread.pPrev->pNext = thread.pNext;
+			thread.pNext->pPrev = thread.pPrev;
+		}
+
+		m_nNodeCounter--;
+
+		return true;
+	}
+
+	inline Thread *Thread::GetCyclicalNext()
+	{
+		return (m_pCurrent->pNext) == nullptr ? (m_pCurrent = m_pBegin) : m_pCurrent->pNext;
+	}
+
+	void Thread::Scheduler()
+	{
+		size_t nThreadCount = m_nNodeCounter;
+		Thread *pThread     = m_pCurrent;
+		atomicx_time tm     = GetTick();
+
+		while (nThreadCount--)
+		{
+			pThread = (pThread->pNext) == nullptr ? (pThread = m_pBegin) : pThread->pNext;
+
+			TRACE(KERNEL, pThread << "." << pThread->GetName() << ": Status: " << GetStatusName(pThread->m_status) << ", Now: " << tm
+			                      << ", nextEvent: " << (int32_t)(pThread->m_nextEvent - tm) << ":" << pThread->m_nextEvent);
+
+			if (!pThread->m_flags.noTimout && m_pCurrent->m_nextEvent >= pThread->m_nextEvent)
+			{
+				m_pCurrent = pThread->m_nextEvent == m_pCurrent->m_nextEvent ?
+				                 pThread->m_priority > m_pCurrent->m_priority ? pThread : m_pCurrent :
+				                 pThread;
+			}
+		}
+
+		TRACE(KERNEL, m_pCurrent << "." << m_pCurrent->GetName() << ": LEAVING Status: " << GetStatusName(m_pCurrent->m_status)
+		                         << ", Now: " << tm << ", nextEvent: " << (int32_t)(m_pCurrent->m_nextEvent - tm));
+
+		tm = GetTick();
+		if (m_pCurrent->m_nextEvent > tm)
+		{
+			TRACE(KERNEL, "SLEEPING: " << pThread << "." << pThread->GetName() << ", Status;" << GetStatusName(m_pCurrent->m_status)
+			                           << ", tm: " << tm << ", next: " << m_pCurrent->m_nextEvent
+			                           << ", sleep: " << (int32_t)(m_pCurrent->m_nextEvent - tm));
+
+			SleepTick(m_pCurrent->m_nextEvent - tm);
+
+			if (m_pCurrent->m_status >= Status::wait)
+			 	m_pCurrent->m_status = Status::timeout;
+		}
         
-        // Get exclusive Mutex
-        while (bExclusiveLock) if  (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL,  1, timeout.GetRemaining())) return false;
+        m_pCurrent->m_flags.noTimout = false;
+		m_pCurrent->m_late = m_pCurrent->m_nextEvent - GetTick();
+	}
 
-        TRACE (LOCK, "Acquiring, bExclusiveLock: " << bExclusiveLock);
-        
-        bExclusiveLock = true;
+	void Thread::SetPriority(uint8_t value)
+	{
+		m_priority = value;
+	}
 
-        TRACE (LOCK, "Exclusive lock, Acquired, Waiting all reading to be done,  nSharedLockCount: " << nSharedLockCount);
-        
-        // Wait all shared locks to be done
-        while (nSharedLockCount) if (! pAtomic->SysWait(nSharedLockCount, SYSTEM_CHANNEL, 2, timeout.GetRemaining())) return false;
+	bool Thread::Join()
+	{
+		m_pCurrent = m_pEnd;
 
-        TRACE (LOCK, "All reading done.., Exlucive lock acquired.  nSharedLockCount: " << nSharedLockCount);
-        
-        return true;
-    }
+		if (m_pCurrent != nullptr)
+		{
+			m_pStartStack = GetStackPoint(); //&nStackPoint;
 
-    bool Mutex::TryLock()
-    {
-        if (bExclusiveLock || nSharedLockCount > 0) return false;
+			setjmp(m_joinContext);
 
-        bExclusiveLock = true;
+			if (m_nNodeCounter == 0)
+			{
+				return false;
+			}
 
-        return true;
-    }
+			// m_pCurrent = GetCyclicalNext ();
+			Thread::Scheduler();
 
-    void Mutex::Unlock()
-    {
-        auto pAtomic = Thread::m_pCurrent;
+			TRACE(KERNEL, "------------------------------------");
+			TRACE(KERNEL, m_pCurrent->GetName()
+			                  << "_" << (size_t)m_pCurrent << ": St [" << GetStatusName(m_pCurrent->m_status) << "]");
+			TRACE(KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize
+			                             << ", Occupied: " << (100 * m_pCurrent->nStackSize) / (m_pCurrent->m_nMaxStackSize) << "%");
 
-        if(pAtomic == nullptr) return;
+			if (m_pCurrent->m_status == Status::starting)
+			{
+				m_pCurrent->m_status = Status::running;
 
-        if (bExclusiveLock == true)
-        {
-            bExclusiveLock = false;
+				m_pCurrent->run();
 
-            // Notify Other locks procedures
-            pAtomic->SysNotify(nSharedLockCount, SYSTEM_CHANNEL,  2, false);
-            pAtomic->SysNotify(bExclusiveLock, SYSTEM_CHANNEL, 1, true);
-        }
-        
-        TRACE (LOCK, "Unlocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
-    }
+				m_pCurrent->m_status = Status::starting;
 
-    bool Mutex::SharedLock(Timeout timeout)
-    {
-        auto pAtomic = Thread::m_pCurrent;
+				longjmp(m_joinContext, 1);
+			}
+			else
+			{
+				longjmp(m_pCurrent->m_context, 1);
+			}
+		}
 
-        if(pAtomic == nullptr) return false;
+		TRACE(TRACE, "NO THREAD TO RUN.... #" << m_nNodeCounter);
 
-        TRACE (LOCK, "Wait Exclusive lock done, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
-        
-        // Wait for exclusive Mutex
-        while (bExclusiveLock > 0) if (! pAtomic->SysWait(bExclusiveLock, SYSTEM_CHANNEL, 1, timeout.GetRemaining())) { return false; }
+		return false;
+	}
 
-        nSharedLockCount++;
+	bool Thread::Yield(atomicx_time tm, Status st)
+	{
+		m_pCurrent->m_pEndStack = GetStackPoint();
+		m_pCurrent->nStackSize  = m_pStartStack - m_pCurrent->m_pEndStack + sizeof(size_t);
 
-        // Notify Other locks procedures
-        pAtomic->SysNotify (nSharedLockCount, SYSTEM_CHANNEL, 2, true);
+		TRACE(KERNEL, "Stack size: " << m_pCurrent->nStackSize << ", Max: " << m_pCurrent->m_nMaxStackSize
+		                             << ", Occupied: " << (100 * m_pCurrent->nStackSize) / (m_pCurrent->m_nMaxStackSize) << "%");
 
-        TRACE (LOCK, "SharedLocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
+		if (st == Status::now)
+		{
+			tm = GetTick();
+		}
+		else
+		{
+			tm = GetTick() + (tm ? tm : m_pCurrent->m_nice);
+		}
 
-        return true;
-    }
+		m_pCurrent->m_status    = st;
+		m_pCurrent->m_nextEvent = tm;
 
-    bool Mutex::TrySharedLock()
-    {
-        if (bExclusiveLock || nSharedLockCount > 0) return false;
+		if (setjmp(m_pCurrent->m_context) != 0)
+		{
+			m_pCurrent->nStackSize = m_pStartStack - m_pCurrent->m_pEndStack;
+			memcpy((void *)m_pCurrent->m_pEndStack, (const void *)&m_pCurrent->m_stack, m_pCurrent->nStackSize);
 
-        nSharedLockCount++;
+			NOTRACE(KERNEL, (size_t)m_pCurrent << ": RETURNED from Join.");
 
-        return true;
-    }
+			return true;
+		}
 
-    void Mutex::SharedUnlock()
-    {
-        auto pAtomic = Thread::m_pCurrent;
+		memcpy((void *)&m_pCurrent->m_stack, (const void *)m_pCurrent->m_pEndStack, m_pCurrent->nStackSize);
 
-        if(pAtomic == nullptr) return;
+		longjmp(m_joinContext, 1);
 
-        if (nSharedLockCount)
-        {
-            nSharedLockCount--;
+		return false;
+	}
 
-            pAtomic->SysNotify(nSharedLockCount, SYSTEM_CHANNEL, 2, true);
-        }
-        
-        TRACE (LOCK, "SharedUnlocked, bExclusiveLock: " << bExclusiveLock << ", nSharedLockCount: " << nSharedLockCount);
-    }
+	size_t Thread::GetThreadCount()
+	{
+		return m_nNodeCounter;
+	}
 
-    size_t Mutex::IsShared()
-    {
-        return nSharedLockCount;
-    }
+	Thread::~Thread()
+	{
+		DetachThread(*this);
+	}
 
-    bool Mutex::IsLocked()
-    {
-        return bExclusiveLock;
-    }
+	size_t Thread::GetStackSize()
+	{
+		return nStackSize;
+	}
 
-    SmartMutex::SmartMutex (Mutex& lockObj) : m_lock(lockObj)
-    {}
+	size_t Thread::GetMaxStackSize()
+	{
+		return m_nMaxStackSize;
+	}
 
-    SmartMutex::~SmartMutex()
-    {
-        switch (m_lockType)
-        {
-            case 'L':
-                m_lock.Unlock();
-                break;
-            case 'S':
-                m_lock.SharedUnlock();
-                break;
-        }
-    }
+	Iterator<Thread> Thread::begin()
+	{
+		return Iterator<Thread>(m_pBegin);
+	}
 
-    bool SmartMutex::SharedLock(Timeout timeout)
-    {
-        bool bRet = false;
+	Iterator<Thread> Thread::end()
+	{
+		return Iterator<Thread>(nullptr);
+	}
 
-        if (m_lockType == '\0')
-        {
-            if (m_lock.SharedLock(timeout))
-            {
-                m_lockType = 'S';
-                bRet = true;
-            }
-        }
+	Status Thread::GetStatus()
+	{
+		return m_status;
+	}
 
-        return bRet;
-    }
+	atomicx_time Thread::GetNice()
+	{
+		return m_nice;
+	}
 
-    bool SmartMutex::Lock(Timeout timeout)
-    {
-        bool bRet = false;
+	atomicx_time Thread::GetNextEvent()
+	{
+		return m_nextEvent;
+	}
 
-        if (m_lockType == '\0')
-        {
-            if (m_lock.Lock(timeout))
-            {
-                m_lockType = 'L';
-                bRet = true;
-            }
-        }
+	int32_t Thread::GetLate()
+	{
+		return m_late;
+	}
 
-        return bRet;
-    }
-
-    size_t SmartMutex::IsShared()
-    {
-        return m_lock.IsShared();
-    }
-
-    bool SmartMutex::IsLocked()
-    {
-        return m_lock.IsLocked();
-    }
-}
+} // namespace atomicx

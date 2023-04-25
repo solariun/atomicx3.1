@@ -1,48 +1,52 @@
 
 #include "atomicx.hpp"
 
-atomicx_time atomicx::Thread::GetTick(void)
+atomicx_time atomicx::Thread::GetTick (void)
 {
     return millis();
 }
 
-void atomicx::Thread::SleepTick(atomicx_time nSleep)
+void atomicx::Thread::SleepTick (atomicx_time nSleep)
 {
-    delay(nSleep);
+    delay (nSleep);
 }
 
 atomicx::Mutex mutex;
 
 uint32_t nValue = 0;
 
-
 void PrintProcess (atomicx::Thread& endpoint)
 {
-    atomicx_time tm = atomicx::Thread::GetTick ();
+    atomicx_time tm = atomicx::Thread::GetTick();
 
     Serial.print ("------------------------------------- Now: ");
     Serial.println (tm);
 
-    for (auto& th :endpoint)
+    for (auto& th : endpoint)
     {
         Serial.print (&th == &endpoint ? '*' : ' ');
-        Serial.print (th.GetName ());
-        Serial.print ((size_t) &th);
-        
-        Serial.print (F("\t"));
-        Serial.print (atomicx::GetStatusName (th.GetStatus ()));
+        Serial.print (th.GetName());
+        Serial.print ((size_t)&th);
 
-        Serial.print (F("\t"));
-        Serial.print (th.GetStackSize ());
-        Serial.print (F("/"));
-        Serial.print (th.GetMaxStackSize ());
+        Serial.print (F ("\t"));
+        Serial.print (atomicx::GetStatusName (th.GetStatus()));
 
-        Serial.print (F("\t"));
-        Serial.print ((int32_t) (th.GetNextEvent () - tm));
-        Serial.print (F("/"));
-        Serial.println (th.GetNextEvent ());
+        Serial.print (F ("\t"));
+        Serial.print (th.GetStackSize());
+        Serial.print (F ("/"));
+        Serial.print (th.GetMaxStackSize());
 
-        Serial.flush ();
+        Serial.print (F ("\tNice:"));
+        Serial.print (th.GetNice());
+
+        Serial.print (F ("\t"));
+        Serial.print ((int32_t)(th.GetLate()));
+        Serial.print (F ("/"));
+        Serial.print ((uint32_t)th.GetNextEvent());
+        Serial.print (F ("/"));
+        Serial.println ((int32_t)th.GetNextEvent() - (int32_t)atomicx::Thread::GetTick());
+
+        Serial.flush();
     }
 
     Serial.println ("-------------------------------------");
@@ -50,172 +54,170 @@ void PrintProcess (atomicx::Thread& endpoint)
 
 class Reader : public atomicx::Thread
 {
-    private:
-        volatile size_t nStack [40];
+private:
+    volatile size_t nStack[40];
 
-    public:
+public:
+    Reader() = delete;
 
-    Reader () = delete;
-
-    Reader (atomicx_time nNice) : Thread (nNice, nStack)
+    Reader (atomicx_time nNice)
+        : Thread (nNice, nStack)
     {
         // Serial.print ((size_t) this);
         // Serial.println (F(": Initiating."));
         // Serial.flush ();
     }
 
-    virtual ~Reader () final
+    virtual ~Reader() final
     {
-        Serial.print ((size_t) this);
-        Serial.println (F(": Deleting."));
-        Serial.flush ();
+        Serial.print ((size_t)this);
+        Serial.println (F (": Deleting."));
+        Serial.flush();
     }
 
-    virtual void run () final 
+    virtual void run () final
     {
-        Serial.print ((size_t) this);
-        Serial.println (F(": Starting up thread."));
-        Serial.flush ();
+        Serial.print ((size_t)this);
+        Serial.println (F (": Starting up thread."));
+        Serial.flush();
 
-        while (Yield ())
+        while (true)
         {
-                Serial.print (GetName ());
-                Serial.print ((size_t) this);
-                Serial.print (F(": bExclusiveLock: "));
-                Serial.print (mutex.GetExclusiveLockStatus ());
-                Serial.print (F(", nSharedLockCount: "));
-                Serial.println (mutex.GetSharedLockCount ());
-                Serial.flush ();
+            // Serial.print (GetName());
+            // Serial.print ((size_t)this);
+            // Serial.print (F (": bExclusiveLock: "));
+            // Serial.print (mutex.GetExclusiveLockStatus());
+            // Serial.print (F (", nSharedLockCount: "));
+            // Serial.println (mutex.GetSharedLockCount());
+            // Serial.flush();
 
             if (mutex.SharedLock (1000))
             {
-                Serial.print ((size_t) this);
-                Serial.print (F(": Read value: "));
-                Serial.print (nValue);
-                Serial.print (F(", Stack: "));
-                Serial.println (GetStackSize ());
+                Serial.print (GetName());
+                Serial.print ((size_t)this);
+                Serial.print (F (": Read value: "));
+                Serial.println (nValue);
 
-                Serial.flush ();
+                Serial.flush();
+
+                PrintProcess(*this);
                 
-                Yield ();
-
-                mutex.SharedUnlock ();
+                Yield();
+                
+                mutex.SharedUnlock();
+            }
+            else
+            {
+                Serial.print (GetName());
+                Serial.print ((size_t)this);
+                Serial.print (F (": >>>>>>>>>>  SharedLock timeout: "));
+                Serial.println (GetLate());
+                Serial.flush();
             }
         }
 
-        Serial.print ((size_t) this);
-        Serial.print (F(": Ending thread."));
-        Serial.flush ();
+        Serial.print ((size_t)this);
+        Serial.print (F (": Ending thread."));
+        Serial.flush();
     }
 
-    virtual const char* GetName () final
-    {
-        return "Reader";
-    }
+    virtual const char* GetName () final { return "Reader"; }
 };
 
 class Writer : public atomicx::Thread
 {
-    private:
-        volatile size_t nStack [40];
+private:
+    volatile size_t nStack[40];
 
-    public:
-
-    Writer (atomicx_time nNice) : Thread (nNice, nStack)
+public:
+    Writer (atomicx_time nNice)
+        : Thread (nNice, nStack)
     {
         // Serial.print ((size_t) this);
         // Serial.println (F(": Initiating."));
         // Serial.flush ();
     }
 
-    virtual ~Writer () final
+    virtual ~Writer() final
     {
-        Serial.print ((size_t) this);
-        Serial.println (F(": Deleting."));
-        Serial.flush ();
+        Serial.print ((size_t)this);
+        Serial.println (F (": Deleting."));
+        Serial.flush();
     }
 
-    virtual void run () final 
+    virtual void run () final
     {
-        Serial.print ((size_t) this);
-        Serial.print (F(": Starting up thread."));
-        Serial.flush ();
+        Serial.print ((size_t)this);
+        Serial.print (F (": Starting up thread."));
+        Serial.flush();
 
-        //SetPriority (255);
+        // SetPriority (255);
 
         while (true)
         {
-            Serial.print (GetName ());
-            Serial.print ((size_t) this);
-            Serial.println (F(": Acquiring lock.. "));
+            // Serial.print (GetName());
+            // Serial.print ((size_t)this);
+            // Serial.println (F (": Acquiring lock.. "));
 
-            Serial.print (GetName ());
-            Serial.print ((size_t) this);
-            Serial.print (F(": bExclusiveLock: "));
-            Serial.print (mutex.GetExclusiveLockStatus ());
-            Serial.print (F(", nSharedLockCount: "));
-            Serial.println (mutex.GetSharedLockCount ());
-            Serial.flush ();
+            // Serial.print (GetName());
+            // Serial.print ((size_t)this);
+            // Serial.print (F (": bExclusiveLock: "));
+            // Serial.print (mutex.GetExclusiveLockStatus());
+            // Serial.print (F (", nSharedLockCount: "));
+            // Serial.println (mutex.GetSharedLockCount());
+            // Serial.flush();
 
             if (mutex.Lock (10000))
             {
-                PrintProcess (*this);
-                
                 nValue++;
 
-                Serial.print (GetName ());
-                Serial.print ((size_t) this);
-                Serial.print (F(": >>>> Written value: "));
-                Serial.print (nValue);
-                Serial.print (F(", Stack: "));
-                Serial.println (GetStackSize ());
+                // Serial.print (GetName());
+                // Serial.print ((size_t)this);
+                // Serial.print (F (": Written value: "));
+                // Serial.print (nValue);
+                // Serial.print (F (", Stack: "));
+                // Serial.println (GetStackSize());
 
-                Serial.flush ();
+                // Serial.flush();
 
-                Yield ();
-                
-                mutex.Unlock ();
+                Yield();
+
+                mutex.Unlock();
             }
         }
 
-        Serial.print ((size_t) this);
-        Serial.print (F(": Ending thread."));
-        Serial.flush ();
+        Serial.print ((size_t)this);
+        Serial.print (F (": Ending thread."));
+        Serial.flush();
 
-        Yield ();
+        Yield();
     }
 
-    virtual const char* GetName () final
-    {
-        return "Writer";
-    }
+    virtual const char* GetName () final { return "Writer"; }
 };
 
-
-int g_nice = 100;
-
-Writer w1(g_nice);
-//Writer w2(g_nice);
+int g_nice = 10;
 
 Reader r1 (g_nice);
 Reader r2 (g_nice);
-// Reader r3 (g_nice);
-// Reader r4 (g_nice);
+Reader r3 (g_nice);
+Reader r4 (g_nice);
 
-void setup()
+Writer w1 (g_nice);
+Writer w2(g_nice);
+
+void setup ()
 {
-   
     Serial.begin (115200);
 
-    Serial.println (F(""));
-    Serial.println (F("Starting atomicx 3 demo."));
-    Serial.flush ();
-    delay(1000);
+    Serial.println (F (""));
+    Serial.println (F ("Starting atomicx 3 demo."));
+    Serial.flush();
+    delay (1000);
 
     PrintProcess (w1);
 
-    atomicx::Thread::Join ();
+    atomicx::Thread::Join();
 }
 
-void loop() {
-}
+void loop () {}
